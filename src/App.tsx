@@ -76,14 +76,14 @@ export default function IbadahTracker() {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (hasUnsavedChanges) {
         e.preventDefault();
-        e.returnValue = ''; // Memicu dialog konfirmasi bawaan browser
+        e.returnValue = ''; 
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // Caching & Sinkronisasi Latar Belakang
+  // PERBAIKAN LOGIKA: Caching & Loading Modal Lock
   useEffect(() => {
     if (user) {
       const cacheKey = `tafkir_cache_${user.uid}`;
@@ -98,6 +98,10 @@ export default function IbadahTracker() {
          } catch (e) {
             console.error("Gagal membaca cache:", e);
          }
+      } else {
+         // KUNCI LAYAR SEKARANG: Jika tidak ada cache, langsung tampilkan modal loading SEBELUM mengunduh
+         setShowSyncModal(true);
+         setSyncStatus('loading');
       }
 
       const fetchData = async () => {
@@ -113,7 +117,7 @@ export default function IbadahTracker() {
           console.error("Gagal menarik data server:", error);
         } finally {
           if (!cachedData) {
-             setShowSyncModal(true);
+             // UBAH STATUS: Jika unduhan selesai, ganti modal menjadi tombol Oke
              setTimeout(() => setSyncStatus('success'), 500);
           }
         }
@@ -126,7 +130,7 @@ export default function IbadahTracker() {
   const handleLogout = () => {
     if (hasUnsavedChanges) {
       const confirmLeave = window.confirm("PERINGATAN: Ada perubahan yang belum disimpan ke server! \n\nData Anda mungkin hilang jika pindah perangkat. Yakin ingin keluar sekarang?");
-      if (!confirmLeave) return; // Batalkan proses logout jika klik Cancel
+      if (!confirmLeave) return; 
     }
     signOut(auth);
   };
@@ -389,7 +393,7 @@ export default function IbadahTracker() {
     <div className="fixed inset-0 w-full h-full overflow-y-auto bg-slate-50 text-slate-800 font-sans">
       <div className="min-h-full p-4 md:p-8 relative">
         
-        {/* Modal Sinkronisasi Manual Pertama Kali */}
+        {/* --- MODAL PENGAMAN: LOADING SINKRONISASI DATA KILAT --- */}
         {showSyncModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
              <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl relative text-center">
@@ -399,7 +403,7 @@ export default function IbadahTracker() {
                          <RefreshCw size={32} className="text-blue-600 animate-spin" />
                       </div>
                       <h3 className="text-xl font-bold text-slate-800 mb-2">Mengunduh Data...</h3>
-                      <p className="text-slate-600 text-sm">Mohon tunggu sebentar, sistem sedang menarik data Anda dari server.</p>
+                      <p className="text-slate-600 text-sm">Mohon tunggu sebentar, sistem sedang menarik data Anda dari server dan menyiapkan sistem lokal.</p>
                    </>
                 ) : (
                    <>
@@ -407,7 +411,7 @@ export default function IbadahTracker() {
                          <Check size={32} className="text-green-600" />
                       </div>
                       <h3 className="text-xl font-bold text-slate-800 mb-2">Sinkronisasi Berhasil</h3>
-                      <p className="text-slate-600 text-sm mb-6">Data Selesai Didownload. Aplikasi Siap Digunakan.</p>
+                      <p className="text-slate-600 text-sm mb-6">Data selesai didownload. Aplikasi siap digunakan.</p>
                       <button onClick={() => setShowSyncModal(false)} className="px-5 py-2.5 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-colors w-full shadow-lg shadow-orange-500/30">
                          Oke
                       </button>
