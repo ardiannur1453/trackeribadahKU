@@ -313,9 +313,9 @@ export default function IbadahTracker() {
     return (
       <div className="min-h-screen bg-[#111] flex flex-col items-center justify-center p-4">
         <div className="bg-white/5 border border-orange-500/30 p-8 rounded-2xl shadow-2xl max-w-md w-full text-center relative overflow-hidden">
-          <div className="w-20 h-20 mx-auto mb-6 bg-black rounded-full border border-orange-500 flex items-center justify-center shadow-[0_0_15px_rgba(249,115,22,0.5)]">
-             <span className="text-orange-500 font-bold text-2xl">TC</span>
-          </div>
+        <div className="w-20 h-20 mx-auto mb-6 bg-black rounded-full border border-orange-500 flex items-center justify-center shadow-[0_0_15px_rgba(249,115,22,0.5)] overflow-hidden">
+   <img src="/logo.png" alt="Logo Tafkir Corp" className="w-full h-full object-contain p-2" />
+      </div>
           <h1 className="text-3xl font-bold text-white mb-2">Tafkir Corp</h1>
           <p className="text-orange-500 text-xs tracking-widest uppercase mb-8">Elevate The Level of Thinking</p>
           <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-orange-500/30">
@@ -341,9 +341,9 @@ export default function IbadahTracker() {
           {isSyncing && <div className="absolute top-0 left-0 w-full h-1 bg-slate-100 overflow-hidden"><div className="w-1/2 h-full bg-orange-500 animate-pulse"></div></div>}
           
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-slate-900 rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md">
-               <span className="text-orange-500 font-bold text-xl">TC</span>
-            </div>
+          <div className="w-16 h-16 bg-slate-900 rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md overflow-hidden">
+   <img src="/logo.png" alt="Logo Tafkir Corp" className="w-full h-full object-contain p-1.5" />
+          </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900 tracking-wide">Tafkir Corp</h1>
               <p className="text-xs text-orange-600 font-bold uppercase tracking-[0.2em] mt-1">Tracker Ibadah & Hal Positif</p>
