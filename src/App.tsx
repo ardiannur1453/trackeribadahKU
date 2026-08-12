@@ -4,7 +4,7 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signO
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2 } from 'lucide-react';
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save } from 'lucide-react';
 
 // --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
@@ -38,7 +38,13 @@ const MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Ju
 export default function IbadahTracker() {
   const [user, setUser] = useState<any>(null);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
+  
+  // Kontrol Sinkronisasi & Loading Modal
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'loading' | 'success'>('loading');
+  
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   
   const [currentDate, setCurrentDate] = useState(new Date());
   const [activities] = useState(DEFAULT_ACTIVITIES);
@@ -49,7 +55,10 @@ export default function IbadahTracker() {
   const [activeJournal, setActiveJournal] = useState<any>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [journalInput, setJournalInput] = useState({ title: '', content: '' });
-  const [clearScope, setClearScope] = useState<'day' | 'week' | 'month'>('day');
+  
+  // Kontrol Hapus Data
+  const [clearScope, setClearScope] = useState<'today' | '2days'>('today');
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -61,9 +70,12 @@ export default function IbadahTracker() {
     return () => unsubscribe();
   }, []);
 
+  // PERBAIKAN FITUR: Pop-up Loading Sinkronisasi Data
   useEffect(() => {
     if (user) {
-      setIsSyncing(true);
+      setShowSyncModal(true);
+      setSyncStatus('loading');
+      
       const fetchData = async () => {
         try {
           const docSnap = await getDoc(doc(db, 'users', user.uid));
@@ -74,22 +86,17 @@ export default function IbadahTracker() {
           }
         } catch (error) {
           console.error(error);
+          showToast("Terjadi kesalahan saat mengunduh data.");
         } finally {
-          setIsSyncing(false);
+          // Memberi jeda visual 500ms agar transisinya terasa mulus
+          setTimeout(() => {
+             setSyncStatus('success');
+          }, 500);
         }
       };
       fetchData();
     }
   }, [user]);
-
-  useEffect(() => {
-    if (user && !isSyncing) {
-      const timer = setTimeout(() => {
-        setDoc(doc(db, 'users', user.uid), { records, journals }, { merge: true });
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [records, journals, user]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -141,6 +148,8 @@ export default function IbadahTracker() {
   };
 
   const handleRecord = (day: Date, actId: number, actTime: string, currentStatus: string | undefined) => {
+    if (showSyncModal) return; // Kunci input jika modal masih tampil
+
     const now = new Date();
     const [hours, minutes] = actTime.split(':').map(Number);
     const targetTime = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, minutes);
@@ -170,28 +179,46 @@ export default function IbadahTracker() {
         }
       });
     }
+    setHasUnsavedChanges(true); 
+  };
+
+  const saveToServer = async () => {
+    if (!user) return;
+    setIsSaving(true);
+    try {
+      await setDoc(doc(db, 'users', user.uid), { records, journals }, { merge: true });
+      setHasUnsavedChanges(false);
+      showToast("Data berhasil diamankan ke brankas server!");
+    } catch (error) {
+      showToast("Gagal menyimpan data. Silakan coba lagi.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const executeClearData = () => {
     const newRecords = { ...records };
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    today.setHours(0,0,0,0);
     
     Object.keys(newRecords).forEach(key => {
       const recDateStr = key.split('-').slice(0, 3).join('-');
       const recDate = new Date(recDateStr);
+      recDate.setHours(0,0,0,0);
       
-      if (clearScope === 'day' && recDateStr === todayStr) {
+      const diffDays = Math.floor((today.getTime() - recDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (clearScope === 'today' && diffDays === 0) {
         delete newRecords[key];
-      } else if (clearScope === 'month' && recDateStr.startsWith(todayStr.substring(0, 7))) {
+      } else if (clearScope === '2days' && diffDays >= 0 && diffDays <= 2) {
         delete newRecords[key];
-      } else if (clearScope === 'week') {
-        const diff = Math.floor((today.getTime() - recDate.getTime()) / (1000 * 60 * 60 * 24));
-        if (diff >= 0 && diff <= 7) delete newRecords[key];
       }
     });
+
     setRecords(newRecords);
-    showToast(`Data berhasil direset!`);
+    setHasUnsavedChanges(true);
+    setShowClearConfirm(false);
+    showToast(`Data ${clearScope === 'today' ? 'Hari Ini' : '2 Hari Terakhir'} terhapus dari layar. Klik Simpan untuk memperbarui server.`);
   };
 
   const saveJournal = () => {
@@ -209,7 +236,8 @@ export default function IbadahTracker() {
     }
     setJournalInput({ title: '', content: '' });
     setActiveJournal(null);
-    showToast("Jurnal berhasil disimpan!");
+    setHasUnsavedChanges(true);
+    showToast("Jurnal berhasil diisi. Klik Simpan untuk memperbarui server.");
   };
 
   const exportChart = async () => {
@@ -308,18 +336,14 @@ export default function IbadahTracker() {
      </div>
   );
 
-  // --- HALAMAN LOGIN (SUDAH LAYAR PENUH 100%) ---
   if (!user) {
     return (
       <div className="fixed inset-0 w-full h-full overflow-y-auto bg-[#111111] flex flex-col items-center justify-center p-4 z-50">
         <div className="bg-white/5 border border-orange-500/30 p-8 rounded-2xl shadow-2xl max-w-md w-full text-center relative overflow-hidden m-auto">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-32 bg-orange-500/20 rounded-full blur-3xl pointer-events-none"></div>
-          
-          {/* Logo Putih & Presisi Tengah */}
           <div className="w-24 h-24 mx-auto mb-6 bg-white rounded-full border-4 border-orange-500 flex items-center justify-center shadow-[0_0_20px_rgba(249,115,22,0.4)]">
              <img src="/logo.png" alt="Logo Tafkir Corp" className="w-[75%] h-[75%] object-contain" />
           </div>
-          
           <h1 className="text-3xl font-bold text-white mb-2">Tafkir Corp</h1>
           <p className="text-orange-500 text-xs tracking-widest uppercase mb-8">Elevate The Level of Thinking</p>
           <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-orange-500/30">
@@ -330,30 +354,82 @@ export default function IbadahTracker() {
     );
   }
 
-  // --- HALAMAN DASHBOARD UTAMA (SUDAH LAYAR PENUH 100%) ---
   return (
     <div className="fixed inset-0 w-full h-full overflow-y-auto bg-slate-50 text-slate-800 font-sans">
-      <div className="min-h-full p-4 md:p-8">
+      <div className="min-h-full p-4 md:p-8 relative">
         
+        {/* --- MODAL LOADING SINKRONISASI DATA --- */}
+        {showSyncModal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+             <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl relative text-center">
+                {syncStatus === 'loading' ? (
+                   <>
+                      <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                         <RefreshCw size={32} className="text-blue-600 animate-spin" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 mb-2">Mengunduh Data...</h3>
+                      <p className="text-slate-600 text-sm">Mohon tunggu sebentar, sistem sedang menarik data Anda dari server.</p>
+                   </>
+                ) : (
+                   <>
+                      <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                         <Check size={32} className="text-green-600" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 mb-2">Sinkronisasi Berhasil</h3>
+                      <p className="text-slate-600 text-sm mb-6">Data Selesai Didownload. Aplikasi Siap Digunakan.</p>
+                      <button onClick={() => setShowSyncModal(false)} className="px-5 py-2.5 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-colors w-full shadow-lg shadow-orange-500/30">
+                         Oke
+                      </button>
+                   </>
+                )}
+             </div>
+          </div>
+        )}
+
+        {/* Modal Konfirmasi Hapus */}
+        {showClearConfirm && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+             <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl relative text-center">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                   <AlertTriangle size={32} className="text-red-600" />
+                </div>
+                <h3 className="text-xl font-bold text-slate-800 mb-2">Konfirmasi Hapus</h3>
+                <p className="text-slate-600 text-sm mb-6">Apakah Anda yakin ingin menghapus inputan {clearScope === 'today' ? 'Hari Ini' : '2 Hari Terakhir'} dari layar Anda?</p>
+                <div className="flex gap-3 justify-center">
+                   <button onClick={() => setShowClearConfirm(false)} className="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors w-full">Batal</button>
+                   <button onClick={executeClearData} className="px-5 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors w-full shadow-lg shadow-red-500/30">Ya, Hapus</button>
+                </div>
+             </div>
+          </div>
+        )}
+
+        {/* Modal View Jurnal */}
+        {isViewModalOpen && activeJournal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative">
+              <button onClick={() => setIsViewModalOpen(false)} className="absolute top-6 right-6 p-2 bg-slate-100 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
+              <h2 className="text-2xl font-bold text-slate-800 mb-2 pr-10">{activeJournal.title}</h2>
+              <p className="text-sm text-orange-600 font-medium mb-6">{new Date(activeJournal.date).toLocaleString('id-ID', {weekday: 'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'})}</p>
+              <div className="whitespace-pre-wrap text-slate-700 leading-relaxed bg-slate-50 p-6 rounded-2xl border border-slate-100 max-h-[60vh] overflow-y-auto">{activeJournal.content}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Toast */}
         {toast && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 border-l-4 border-orange-500 animate-bounce">
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 border-l-4 border-orange-500 animate-bounce">
             <AlertCircle size={20} className="text-orange-500" /> {toast}
           </div>
         )}
 
         <div className="max-w-7xl mx-auto space-y-8">
           
-          {/* Header Identitas & Sinkronisasi */}
+          {/* Header */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col md:flex-row justify-between items-center gap-4 relative overflow-hidden">
-            {isSyncing && <div className="absolute top-0 left-0 w-full h-1 bg-slate-100 overflow-hidden"><div className="w-1/2 h-full bg-orange-500 animate-pulse"></div></div>}
-            
             <div className="flex items-center gap-4">
-              
-              {/* Logo Putih & Presisi Tengah */}
               <div className="w-16 h-16 bg-white rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md shrink-0">
                  <img src="/logo.png" alt="Logo Tafkir Corp" className="w-[70%] h-[70%] object-contain" />
               </div>
-              
               <div>
                 <h1 className="text-2xl font-bold text-slate-900 tracking-wide">Tafkir Corp</h1>
                 <p className="text-xs text-orange-600 font-bold uppercase tracking-[0.2em] mt-1">Tracker Ibadah & Hal Positif</p>
@@ -363,7 +439,7 @@ export default function IbadahTracker() {
             <div className="flex items-center gap-4 bg-slate-100 px-4 py-2 rounded-xl border border-slate-200">
                <div className="text-right hidden sm:block">
                  <div className="text-sm font-semibold text-slate-800">{user.displayName}</div>
-                 <div className="text-xs text-green-600 font-medium">Tersinkronisasi Cloud</div>
+                 <div className="text-xs text-green-600 font-medium">Mode Koneksi Manual</div>
                </div>
                <button onClick={() => signOut(auth)} className="ml-2 bg-red-100 text-red-600 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
                  <LogOut size={16}/> Keluar
@@ -371,8 +447,8 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          {/* Tabel Aktivitas & Kontrol Bulan */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          {/* Tabel Aktivitas */}
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden relative">
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                   <span className="w-3 h-3 rounded-full bg-orange-500"></span> Tabel Pelaporan Bulanan
@@ -442,21 +518,34 @@ export default function IbadahTracker() {
                 </tbody>
               </table>
             </div>
+
+            {/* Tombol Konfirmasi Simpan */}
+            <div className={`p-4 border-t border-slate-200 flex flex-col items-end transition-colors ${hasUnsavedChanges ? 'bg-orange-50' : 'bg-slate-50'}`}>
+               <button 
+                  onClick={saveToServer}
+                  disabled={!hasUnsavedChanges || isSaving}
+                  className={`px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all w-full sm:w-auto justify-center ${hasUnsavedChanges ? 'bg-orange-600 text-white shadow-[0_4px_15px_rgba(249,115,22,0.4)] hover:bg-orange-700 hover:-translate-y-0.5' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
+               >
+                  {isSaving ? <RefreshCw className="animate-spin" size={20} /> : <Save size={20} />}
+                  {isSaving ? 'Menyimpan Data...' : 'Simpan Perubahan ke Server'}
+               </button>
+               {hasUnsavedChanges && <p className="text-xs text-orange-600 mt-2 font-medium">Terdapat perubahan yang belum disimpan ke brankas.</p>}
+            </div>
             
-            <div className="bg-slate-100 p-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-               <div className="flex items-center gap-4 text-sm font-medium text-slate-700">
-                 <span className="flex items-center gap-2"><Trash2 size={16} className="text-slate-400"/> Hapus Data:</span>
-                 <label className="flex items-center gap-1 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === 'day'} onChange={() => setClearScope('day')} className="accent-orange-600" /> Harian</label>
-                 <label className="flex items-center gap-1 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === 'week'} onChange={() => setClearScope('week')} className="accent-orange-600" /> Mingguan</label>
-                 <label className="flex items-center gap-1 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === 'month'} onChange={() => setClearScope('month')} className="accent-orange-600" /> Bulanan</label>
+            {/* Menu Hapus */}
+            <div className="bg-white p-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+               <div className="flex items-center gap-6 text-sm font-bold text-slate-700 w-full sm:w-auto bg-slate-100 px-4 py-3 rounded-xl border border-slate-200">
+                 <span className="flex items-center gap-2 text-slate-500"><Trash2 size={16}/> Hapus Data:</span>
+                 <label className="flex items-center gap-2 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === 'today'} onChange={() => setClearScope('today')} className="accent-orange-600 w-4 h-4" /> Hari Ini</label>
+                 <label className="flex items-center gap-2 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === '2days'} onChange={() => setClearScope('2days')} className="accent-orange-600 w-4 h-4" /> 2 Hari Lalu</label>
                </div>
-               <button onClick={executeClearData} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm transition-colors">
-                 <RefreshCw size={16} /> Update (Eksekusi Hapus)
+               <button onClick={() => setShowClearConfirm(true)} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors w-full sm:w-auto justify-center">
+                 <Trash2 size={16} /> Eksekusi Hapus
                </button>
             </div>
           </div>
 
-          {/* --- MANAJEMEN JURNAL POP-UP --- */}
+          {/* Jurnal */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col">
               <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
@@ -472,7 +561,7 @@ export default function IbadahTracker() {
                     <div className="flex gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => { setActiveJournal(j); setIsViewModalOpen(true); }} className="p-1 hover:bg-slate-200 rounded text-blue-600"><Eye size={16} /></button>
                       <button onClick={() => { setActiveJournal(j); setJournalInput({title: j.title, content: j.content}); setIsViewModalOpen(false); }} className="p-1 hover:bg-slate-200 rounded text-orange-600"><Edit3 size={16} /></button>
-                      <button onClick={() => setJournals(journals.filter(x => x.id !== j.id))} className="p-1 hover:bg-slate-200 rounded text-red-600"><Trash2 size={16} /></button>
+                      <button onClick={() => { setJournals(journals.filter(x => x.id !== j.id)); setHasUnsavedChanges(true); }} className="p-1 hover:bg-slate-200 rounded text-red-600"><Trash2 size={16} /></button>
                     </div>
                   </div>
                 ))}
@@ -486,23 +575,12 @@ export default function IbadahTracker() {
               <input type="text" placeholder="Judul Jurnal / Catatan..." value={journalInput.title} onChange={e => setJournalInput({...journalInput, title: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all font-medium" />
               <textarea placeholder="Tuliskan evaluasi, syukur, atau doa Anda hari ini..." value={journalInput.content} onChange={e => setJournalInput({...journalInput, content: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 h-40 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all resize-none mb-4" />
               <div className="flex justify-end">
-                 <button onClick={saveJournal} className="bg-orange-600 text-white px-6 py-2.5 rounded-xl hover:bg-orange-700 font-bold shadow-md shadow-orange-500/20 transition-all">Simpan Jurnal</button>
+                 <button onClick={saveJournal} className="bg-slate-800 text-white px-6 py-2.5 rounded-xl hover:bg-slate-900 font-bold shadow-md transition-all flex items-center gap-2"><Check size={18}/> Isi Jurnal (Jangan Lupa Klik Simpan)</button>
               </div>
             </div>
           </div>
 
-          {isViewModalOpen && activeJournal && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative">
-                <button onClick={() => setIsViewModalOpen(false)} className="absolute top-6 right-6 p-2 bg-slate-100 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
-                <h2 className="text-2xl font-bold text-slate-800 mb-2 pr-10">{activeJournal.title}</h2>
-                <p className="text-sm text-orange-600 font-medium mb-6">{new Date(activeJournal.date).toLocaleString('id-ID', {weekday: 'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'})}</p>
-                <div className="whitespace-pre-wrap text-slate-700 leading-relaxed bg-slate-50 p-6 rounded-2xl border border-slate-100 max-h-[60vh] overflow-y-auto">{activeJournal.content}</div>
-              </div>
-            </div>
-          )}
-
-          {/* Area Analisa & Grafik (Khusus Area Ini yang Diekspor) */}
+          {/* Area Analisa & Grafik */}
           <div ref={chartRef} className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 relative">
             <button onClick={exportChart} className="absolute top-8 right-8 flex items-center gap-2 bg-orange-50 hover:bg-orange-100 text-orange-600 px-4 py-2 rounded-xl text-sm font-bold border border-orange-200 transition-colors">
               <Download size={16} /> Ekspor Laporan
