@@ -3,8 +3,8 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2 } from 'lucide-react';
 
 // --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
@@ -53,7 +53,6 @@ export default function IbadahTracker() {
   
   const chartRef = useRef<HTMLDivElement>(null);
 
-  // Auth Effect
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -62,7 +61,6 @@ export default function IbadahTracker() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch Data Cepat tanpa Blocking UI
   useEffect(() => {
     if (user) {
       setIsSyncing(true);
@@ -84,7 +82,6 @@ export default function IbadahTracker() {
     }
   }, [user]);
 
-  // Save Data
   useEffect(() => {
     if (user && !isSyncing) {
       const timer = setTimeout(() => {
@@ -110,14 +107,13 @@ export default function IbadahTracker() {
     return Array.from({ length: days }, (_, i) => new Date(year, month, i + 1));
   }, [currentDate]);
 
-  // LOGIKA BARU: Evaluasi Pekan Berjalan yang Lebih Akurat
+  // LOGIKA BARU: Evaluasi Pekan Berjalan (Tidak Langsung Merah)
   const getWeeklyEvaluation = (actId: number) => {
     const today = new Date();
-    // Abaikan jika sedang melihat bulan lalu/depan
     if (currentDate.getMonth() !== today.getMonth() || currentDate.getFullYear() !== today.getFullYear()) return true;
 
     let currentDayOfWeek = today.getDay();
-    if (currentDayOfWeek === 0) currentDayOfWeek = 7; // Ubah Minggu jadi hari ke-7
+    if (currentDayOfWeek === 0) currentDayOfWeek = 7; 
     
     let expected = 0;
     let doneCount = 0;
@@ -130,7 +126,6 @@ export default function IbadahTracker() {
       const checkDate = new Date(today);
       checkDate.setDate(today.getDate() - (currentDayOfWeek - i));
       
-      // Hitung ekspektasi: Hanya tambahkan jika HARI SUDAH LEWAT, atau JIKA HARI INI, WAKTUNYA SUDAH LEWAT
       const targetTime = new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate(), h, m);
       if (today.getTime() >= targetTime.getTime()) {
          expected++;
@@ -140,11 +135,12 @@ export default function IbadahTracker() {
       if (records[key]?.status === 'done') doneCount++;
     }
 
-    // Jika belum ada jadwal yang masuk (misal Senin pagi sebelum Tahajud), maka aman
-    if (expected === 0) return true;
+    // PERBAIKAN: Beri kelonggaran di awal pekan (Senin & Selasa). 
+    // Hanya evaluasi dan beri peringatan merah jika target yang terlewat sudah >= 3 hari
+    if (expected < 3) return true;
     
     const percentage = doneCount / expected;
-    return percentage >= 0.5; // True (aman) jika >= 50%, False (merah) jika < 50%
+    return percentage >= 0.5; // True jika aman, False jika < 50%
   };
 
   const handleRecord = (day: Date, actId: number, actTime: string, currentStatus: string | undefined) => {
@@ -243,17 +239,37 @@ export default function IbadahTracker() {
     });
   }, [daysInMonth, records, activities]);
 
+  // Kalkulasi Statistik Total & Mingguan (Scoreboard)
   const calcStats = () => {
-    let totalDone = 0;
-    let totalMissed = 0;
-    let weekDone = 0;
-    let weekMissed = 0;
-    
     const today = new Date();
-    const currentDayOfWeek = today.getDay() === 0 ? 7 : today.getDay(); 
-    
     const timeStats: Record<number, { onTime: number, totalValid: number }> = {};
     activities.forEach(a => timeStats[a.id] = { onTime: 0, totalValid: 0 });
+
+    const weeklyStats = [
+      { done: 0, expected: 0 }, { done: 0, expected: 0 }, 
+      { done: 0, expected: 0 }, { done: 0, expected: 0 }, { done: 0, expected: 0 }
+    ];
+
+    // Menghitung ekspektasi per pekan berdasarkan waktu yang sudah lewat
+    daysInMonth.forEach(d => {
+       const weekIdx = Math.floor((d.getDate() - 1) / 7);
+       const dateStr = d.toISOString().split('T')[0];
+       
+       activities.forEach(a => {
+          const [h, m] = a.time.split(':').map(Number);
+          const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
+          
+          if (today.getTime() >= targetTime.getTime()) {
+             weeklyStats[weekIdx].expected++;
+          }
+          if (records[`${dateStr}-${a.id}`]?.status === 'done') {
+             weeklyStats[weekIdx].done++;
+          }
+       });
+    });
+
+    let totalDone = 0;
+    let totalMissed = 0;
 
     Object.entries(records).forEach(([key, val]: [string, any]) => {
       const [y, m, d, actId] = key.split('-');
@@ -262,12 +278,6 @@ export default function IbadahTracker() {
       if (recDate.getMonth() === currentDate.getMonth() && recDate.getFullYear() === currentDate.getFullYear()) {
          if (val.status === 'done') totalDone++;
          if (val.status === 'missed') totalMissed++;
-      }
-
-      const diffDays = Math.floor((today.getTime() - recDate.getTime()) / (1000 * 60 * 60 * 24));
-      if (diffDays >= 0 && diffDays < currentDayOfWeek) {
-         if (val.status === 'done') weekDone++;
-         if (val.status === 'missed') weekMissed++;
       }
 
       if (val.status === 'done' || val.status === 'missed') {
@@ -291,11 +301,8 @@ export default function IbadahTracker() {
 
     const totalFilled = totalDone + totalMissed;
     const donePercent = totalFilled ? Math.round((totalDone / totalFilled) * 100) : 0;
-    
-    const totalWeekFilled = weekDone + weekMissed;
-    const weekDonePercent = totalWeekFilled ? Math.round((weekDone / (activities.length * currentDayOfWeek)) * 100) : 0;
 
-    return { totalDone, donePercent, weekDonePercent, timeStats };
+    return { totalDone, donePercent, timeStats, weeklyStats };
   };
 
   const stats = calcStats();
@@ -440,7 +447,7 @@ export default function IbadahTracker() {
           </div>
         </div>
 
-        {/* --- MANAJEMEN JURNAL POP-UP (Dipindah ke Atas Grafik) --- */}
+        {/* --- MANAJEMEN JURNAL POP-UP --- */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col">
             <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
@@ -520,30 +527,48 @@ export default function IbadahTracker() {
              <p className="text-center text-xs text-slate-400 mt-2">Fluktuasi Kuantitas Ibadah Harian di Bulan {MONTH_NAMES[currentDate.getMonth()]}</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             {/* Box Kuantitas & Mingguan */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+             {/* Scoreboard Mingguan (FITUR BARU) */}
              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
-                <h3 className="text-slate-700 font-bold mb-6 text-center">Ringkasan Kuantitas</h3>
+                <h3 className="text-slate-700 font-bold mb-6 text-center flex items-center justify-center gap-2">
+                   <BarChart2 size={18} className="text-blue-500"/> Scoreboard Lead Measures (Per Pekan)
+                </h3>
+                <div className="space-y-4">
+                   {stats.weeklyStats.map((w, idx) => {
+                      if (w.expected === 0) return null; // Sembunyikan pekan yang belum berjalan
+                      const pct = Math.round((w.done / w.expected) * 100);
+                      const startDay = idx * 7 + 1;
+                      const endDay = Math.min((idx + 1) * 7, daysInMonth.length);
+                      return (
+                         <div key={idx}>
+                            <div className="flex justify-between text-sm font-semibold mb-1 text-slate-600">
+                               <span>Pekan {idx + 1} <span className="text-xs font-normal text-slate-400">(Tgl {startDay}-{endDay})</span></span>
+                               <span className={pct >= 50 ? 'text-blue-600' : 'text-orange-500'}>{pct}%</span>
+                            </div>
+                            <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
+                               <div className={`h-full rounded-full transition-all duration-1000 ${pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-blue-500' : 'bg-orange-500'}`} style={{ width: `${pct}%` }}></div>
+                            </div>
+                         </div>
+                      );
+                   })}
+                   {stats.weeklyStats.every(w => w.expected === 0) && (
+                      <p className="text-xs text-slate-400 text-center py-4">Belum ada data pekan ini.</p>
+                   )}
+                </div>
+             </div>
+
+             {/* Box Kuantitas Total */}
+             <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
+                <h3 className="text-slate-700 font-bold mb-6 text-center">Ringkasan Kuantitas Bulanan</h3>
                 
                 <div className="space-y-6">
                    <div>
-                     <div className="flex justify-between text-sm font-semibold mb-2 text-slate-600">
-                        <span>Pencapaian Pekan Ini</span>
-                        <span className="text-blue-600">{stats.weekDonePercent}%</span>
-                     </div>
-                     <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-500 rounded-full" style={{ width: `${stats.weekDonePercent}%` }}></div>
-                     </div>
-                     <p className="text-xs text-slate-500 mt-1">Mengukur dari hari Senin hingga hari ini.</p>
-                   </div>
-                   
-                   <div className="border-t border-slate-200 pt-4">
                      <div className="flex justify-between text-sm font-semibold mb-2 text-slate-600">
                         <span>Total Selesai Bulan Ini ({stats.totalDone}x)</span>
                         <span className="text-green-600">{stats.donePercent}%</span>
                      </div>
                      <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-green-500 rounded-full" style={{ width: `${stats.donePercent}%` }}></div>
+                        <div className="h-full bg-green-500 rounded-full transition-all duration-1000" style={{ width: `${stats.donePercent}%` }}></div>
                      </div>
                    </div>
                 </div>
@@ -551,10 +576,10 @@ export default function IbadahTracker() {
 
              {/* Box Kedisiplinan Waktu */}
              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
-                <h3 className="text-slate-700 font-bold mb-4 text-center">Disiplin Lapor Sesuai Waktu</h3>
-                <p className="text-xs text-slate-500 text-center mb-6">Persentase pelaporan tanpa rapel (Max 1 jam setelah aktivitas)</p>
+                <h3 className="text-slate-700 font-bold mb-4 text-center">Disiplin Waktu (Tanpa Rapel)</h3>
+                <p className="text-xs text-slate-500 text-center mb-6">Persentase pelaporan Tepat Waktu</p>
                 
-                <div className="space-y-4 max-h-[200px] overflow-y-auto pr-2">
+                <div className="space-y-4 max-h-[150px] overflow-y-auto pr-2">
                    {activities.map(act => {
                       const stat = stats.timeStats[act.id];
                       if (stat.totalValid === 0) return null;
@@ -564,10 +589,10 @@ export default function IbadahTracker() {
                          <div key={act.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
                             <span className="text-sm font-medium text-slate-700">{act.name}</span>
                             <div className="flex items-center gap-3">
-                               <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                               <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
                                   <div className={`h-full rounded-full ${onTimePercent >= 80 ? 'bg-green-500' : onTimePercent >= 50 ? 'bg-orange-400' : 'bg-red-500'}`} style={{ width: `${onTimePercent}%` }}></div>
                                </div>
-                               <span className={`text-sm font-bold min-w-[40px] text-right ${onTimePercent >= 80 ? 'text-green-600' : onTimePercent >= 50 ? 'text-orange-500' : 'text-red-500'}`}>
+                               <span className={`text-sm font-bold min-w-[36px] text-right ${onTimePercent >= 80 ? 'text-green-600' : onTimePercent >= 50 ? 'text-orange-500' : 'text-red-500'}`}>
                                   {onTimePercent}%
                                </span>
                             </div>
@@ -576,7 +601,7 @@ export default function IbadahTracker() {
                    })}
                    {activities.every(a => stats.timeStats[a.id].totalValid === 0) && (
                       <div className="text-center py-6 text-slate-400 text-sm italic border-2 border-dashed border-slate-200 rounded-xl">
-                         Belum ada aktivitas yang dilaporkan secara valid.
+                         Belum ada aktivitas.
                       </div>
                    )}
                 </div>
