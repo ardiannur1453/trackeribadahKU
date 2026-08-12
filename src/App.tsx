@@ -79,7 +79,7 @@ export default function IbadahTracker() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // 1 & 3: SINKRONISASI REALTIME & LATAR BELAKANG (TANPA POPUP MENGGANGGU)
+  // Listener Real-time
   useEffect(() => {
     if (user) {
       const cacheKey = `tafkir_cache_${user.uid}`;
@@ -98,7 +98,6 @@ export default function IbadahTracker() {
 
       setIsSyncing(true);
 
-      // Realtime Listener: Langsung update layar jika ada perubahan dari Laptop/Device lain
       const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
          if (docSnap.exists()) {
             const data = docSnap.data();
@@ -109,7 +108,8 @@ export default function IbadahTracker() {
          }
          setIsSyncing(false);
       }, (error) => {
-         console.error("Gagal sinkronisasi:", error);
+         console.error("Firestore Error:", error);
+         showToast("Koneksi Firebase terputus. Cek izin Database!");
          setIsSyncing(false);
       });
 
@@ -167,12 +167,8 @@ export default function IbadahTracker() {
      }
   };
 
-  // 5. PERBAIKAN LOGIKA MERAH: Berdasarkan Total HARI yang sudah berlalu
   const getDailyEvaluation = (actId: number) => {
     const today = new Date();
-    
-    // Jika melihat bulan lalu -> seluruh hari di bulan itu dihitung
-    // Jika melihat bulan depan -> aman (belum ada hari berlalu)
     let isCurrentMonth = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
     let isPastMonth = currentDate.getFullYear() < today.getFullYear() || (currentDate.getFullYear() === today.getFullYear() && currentDate.getMonth() < today.getMonth());
 
@@ -186,7 +182,6 @@ export default function IbadahTracker() {
     let doneCount = 0;
 
     daysInMonth.forEach(d => {
-       // Hanya menghitung hari dan jam yang BENAR-BENAR SUDAH BERLALU
        const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
        if (today.getTime() >= targetTime.getTime()) {
           expected++;
@@ -195,11 +190,9 @@ export default function IbadahTracker() {
        }
     });
 
-    // Jika belum ada ekspektasi waktu yang terlewat (misal di tgl 1 pagi), maka aman
     if (expected === 0) return true; 
-    
     const percentage = doneCount / expected;
-    return percentage >= 0.5; // True jika aman, False (Merah) jika < 50%
+    return percentage >= 0.5; 
   };
 
   const handleRecord = (day: Date, actId: number, actTime: string, currentStatus: string | undefined) => {
@@ -232,22 +225,26 @@ export default function IbadahTracker() {
     setHasUnsavedChanges(true); 
   };
 
+  // PERBAIKAN: Fungsi Save yang Akan Langsung Berteriak Jika Firebase Gagal
   const saveToServer = async () => {
     if (!user) return;
     setIsSaving(true);
     
     const payload = { activities, records, journals };
     localStorage.setItem(`tafkir_cache_${user.uid}`, JSON.stringify(payload));
-    setHasUnsavedChanges(false);
+    setHasUnsavedChanges(false); // Reset tombol sementara
     
     try {
-      await Promise.race([
-         setDoc(doc(db, 'users', user.uid), payload, { merge: true }),
-         new Promise((resolve) => setTimeout(resolve, 3000))
-      ]);
-      showToast("Data diamankan ke perangkat dan server!");
-    } catch (error) {
-      console.log("Server lambat, namun data aman di lokal.");
+      await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
+      showToast("Data berhasil masuk ke Firebase Server!");
+    } catch (error: any) {
+      console.error("GAGAL SIMPAN FIREBASE:", error);
+      setHasUnsavedChanges(true); // Nyalakan lagi tombol simpan karena gagal
+      if (error.code === 'permission-denied') {
+         showToast("ERROR FIREBASE: Pintu Database masih Terkunci (Rules)!");
+      } else {
+         showToast("Gagal menyambung ke server. Data aman di HP ini.");
+      }
     } finally {
       setIsSaving(false);
     }
@@ -414,8 +411,7 @@ export default function IbadahTracker() {
   return (
     <div className="fixed inset-0 w-full h-full overflow-y-auto bg-slate-50 text-slate-800 font-sans">
       <div className="min-h-full p-4 md:p-8 relative">
-        
-        {/* Modal Pengaturan Aktivitas (Add/Edit) */}
+
         {actModal.show && (
            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
               <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
@@ -438,7 +434,6 @@ export default function IbadahTracker() {
            </div>
         )}
 
-        {/* Modal Konfirmasi Hapus Data */}
         {showClearConfirm && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
              <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl relative text-center">
@@ -455,7 +450,17 @@ export default function IbadahTracker() {
           </div>
         )}
 
-        {/* Toast Notification */}
+        {isViewModalOpen && activeJournal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative">
+              <button onClick={() => setIsViewModalOpen(false)} className="absolute top-6 right-6 p-2 bg-slate-100 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
+              <h2 className="text-2xl font-bold text-slate-800 mb-2 pr-10">{activeJournal.title}</h2>
+              <p className="text-sm text-orange-600 font-medium mb-6">{new Date(activeJournal.date).toLocaleString('id-ID', {weekday: 'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'})}</p>
+              <div className="whitespace-pre-wrap text-slate-700 leading-relaxed bg-slate-50 p-6 rounded-2xl border border-slate-100 max-h-[60vh] overflow-y-auto">{activeJournal.content}</div>
+            </div>
+          </div>
+        )}
+
         {toast && (
           <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 border-l-4 border-orange-500 animate-bounce">
             <AlertCircle size={20} className="text-orange-500" /> {toast}
@@ -464,7 +469,6 @@ export default function IbadahTracker() {
 
         <div className="max-w-7xl mx-auto space-y-8">
           
-          {/* Header 2. NAMA AKUN DI MOBILE DIPERBAIKI */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 flex flex-row justify-between items-center gap-4 relative overflow-hidden">
             <div className="flex items-center gap-3 sm:gap-4">
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md shrink-0">
@@ -493,7 +497,6 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          {/* Tabel Aktivitas */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden relative">
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
                <div className="flex items-center justify-between w-full md:w-auto gap-4">
@@ -580,7 +583,6 @@ export default function IbadahTracker() {
               </table>
             </div>
 
-            {/* Tombol Konfirmasi Simpan */}
             <div className={`p-4 border-t border-slate-200 flex flex-col items-end transition-colors ${hasUnsavedChanges ? 'bg-orange-50' : 'bg-slate-50'}`}>
                <button 
                   onClick={saveToServer}
@@ -593,7 +595,6 @@ export default function IbadahTracker() {
                {hasUnsavedChanges && <p className="text-xs text-orange-600 mt-2 font-medium">PENTING: Terdapat perubahan yang belum disimpan ke brankas.</p>}
             </div>
             
-            {/* Menu Hapus */}
             <div className="bg-white p-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
                <div className="flex items-center gap-6 text-sm font-bold text-slate-700 w-full sm:w-auto bg-slate-100 px-4 py-3 rounded-xl border border-slate-200">
                  <span className="flex items-center gap-2 text-slate-500"><Trash2 size={16}/> Hapus Data:</span>
@@ -611,7 +612,6 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          {/* Jurnal */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col">
               <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
@@ -646,9 +646,8 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          {/* Area Analisa & Grafik */}
           <div ref={chartRef} className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-8 relative">
-            {/* 4. PERBAIKAN: Tombol Ekspor di Mobile Dibuat Rapi (Flexbox) */}
+            
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
                <h2 className="text-xl font-bold text-slate-800 border-l-4 border-orange-500 pl-4">Analisa & Grafik Progres</h2>
                <button onClick={exportChart} className="flex items-center gap-2 bg-orange-50 hover:bg-orange-100 text-orange-600 px-4 py-2 rounded-xl text-sm font-bold border border-orange-200 transition-colors w-full sm:w-auto justify-center">
