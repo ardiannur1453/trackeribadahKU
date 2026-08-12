@@ -20,6 +20,14 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
+// --- HELPER ZONA WAKTU LOKAL (SOLUSI BUG RAPELAN) ---
+const getLocalDateStr = (d: Date) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const DEFAULT_ACTIVITIES = [
   { id: 1, name: 'Shalat Tahajud', time: '03:00' },
   { id: 2, name: 'Shalat Subuh', time: '04:30' },
@@ -200,7 +208,7 @@ export default function IbadahTracker() {
        const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
        if (today.getTime() >= targetTime.getTime()) {
           expected++;
-          const key = `${d.toISOString().split('T')[0]}-${actId}`;
+          const key = `${getLocalDateStr(d)}-${actId}`;
           if (records[key]?.status === 'done') doneCount++;
        }
     });
@@ -221,7 +229,7 @@ export default function IbadahTracker() {
       return;
     }
 
-    const key = `${day.toISOString().split('T')[0]}-${actId}`;
+    const key = `${getLocalDateStr(day)}-${actId}`;
     let newStatus = 'done';
     if (currentStatus === 'done') newStatus = 'missed';
     if (currentStatus === 'missed') newStatus = 'none';
@@ -233,7 +241,7 @@ export default function IbadahTracker() {
       newRecs[key] = {
         status: newStatus,
         timestamp: now.getTime(),
-        actualDay: now.toISOString().split('T')[0]
+        actualDay: getLocalDateStr(now)
       };
     }
     setRecords(newRecs);
@@ -274,7 +282,7 @@ export default function IbadahTracker() {
       id: activeJournal ? activeJournal.id : Date.now(),
       title: journalInput.title,
       content: journalInput.content,
-      date: new Date().toISOString()
+      date: new Date().toISOString() // Format absolut aman untuk jurnal
     };
     if (activeJournal) {
       setJournals(journals.map(j => j.id === activeJournal.id ? newJ : j));
@@ -299,7 +307,7 @@ export default function IbadahTracker() {
 
   const chartData = useMemo(() => {
     return daysInMonth.map(d => {
-      const dateStr = d.toISOString().split('T')[0];
+      const dateStr = getLocalDateStr(d);
       let doneCount = 0;
       activities.forEach(a => {
         if (records[`${dateStr}-${a.id}`]?.status === 'done') doneCount++;
@@ -311,7 +319,6 @@ export default function IbadahTracker() {
     });
   }, [daysInMonth, records, activities]);
 
-  // Kalkulasi Statistik Lengkap dengan LOGIKA DISIPLIN WAKTU BARU
   const calcStats = () => {
     const actData: Record<number, { done: number, missed: number, onTime: number, late: number }> = {};
     activities.forEach(a => actData[a.id] = { done: 0, missed: 0, onTime: 0, late: 0 });
@@ -325,34 +332,32 @@ export default function IbadahTracker() {
     let totalMissed = 0;
 
     Object.entries(records).forEach(([key, val]: [string, any]) => {
-      const [y, m, d, actIdStr] = key.split('-');
+      const [yStr, mStr, dStr, actIdStr] = key.split('-');
+      const y = parseInt(yStr);
+      const m = parseInt(mStr);
+      const d = parseInt(dStr);
       const actId = parseInt(actIdStr);
-      const recDate = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
+      const recDate = new Date(y, m - 1, d);
 
       if (recDate.getMonth() === currentDate.getMonth() && recDate.getFullYear() === currentDate.getFullYear()) {
          if (val.status === 'done') {
             totalDone++;
             if(actData[actId]) actData[actId].done++;
             
-            // Evaluasi Disiplin Waktu (Hanya untuk yang "done")
             const activity = activities.find(a => a.id === actId);
             if (activity) {
-               const recordDateStr = `${y}-${m}-${d}`;
+               const recordDateStr = `${yStr}-${mStr}-${dStr}`;
                if (val.actualDay === recordDateStr) {
                   const [h, min] = activity.time.split(':').map(Number);
-                  const targetTime = new Date(parseInt(y), parseInt(m)-1, parseInt(d), h, min).getTime();
-                  // Hitung selisih dalam menit
+                  const targetTime = new Date(y, m - 1, d, h, min).getTime();
                   const timeDiffMins = (val.timestamp - targetTime) / 60000;
                   
-                  // H+1 Menit s/d H+30 Menit = TEPAT WAKTU
                   if (timeDiffMins <= 30) { 
                      actData[actId].onTime++;
                   } else {
-                     // > 30 Menit = RAPELAN
                      actData[actId].late++;
                   }
                } else {
-                  // Beda Hari = RAPELAN
                   actData[actId].late++;
                }
             }
@@ -364,11 +369,10 @@ export default function IbadahTracker() {
       }
     });
 
-    // Menghitung ekspektasi mingguan (tidak berubah)
     const today = new Date();
     daysInMonth.forEach(d => {
        const weekIdx = Math.floor((d.getDate() - 1) / 7);
-       const dateStr = d.toISOString().split('T')[0];
+       const dateStr = getLocalDateStr(d);
        activities.forEach(a => {
           const [h, m] = a.time.split(':').map(Number);
           const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
@@ -384,12 +388,10 @@ export default function IbadahTracker() {
     const totalFilled = totalDone + totalMissed;
     const donePercent = totalFilled ? Math.round((totalDone / totalFilled) * 100) : 0;
 
-    // Kalkulasi Klasemen Kuantitas
     let sortedFreq = activities.map(a => ({ name: a.name, ...actData[a.id] })).filter(a => (a.done + a.missed) > 0);
     let mostFreq = sortedFreq.length ? [...sortedFreq].sort((a,b) => b.done - a.done)[0] : null;
     let leastFreq = sortedFreq.length ? [...sortedFreq].sort((a,b) => b.missed - a.missed)[0] : null;
 
-    // Kalkulasi Klasemen Disiplin Waktu (Top 3 & Bottom 3)
     let sortedDiscip = activities.map(a => {
        const stat = actData[a.id];
        return { 
@@ -400,7 +402,6 @@ export default function IbadahTracker() {
        };
     }).filter(a => a.done > 0);
     
-    // Urutkan dan ambil 3 teratas
     let top3OnTime = [...sortedDiscip].sort((a,b) => b.onTimePct - a.onTimePct).slice(0, 3);
     let top3Late = [...sortedDiscip].sort((a,b) => b.latePct - a.latePct).slice(0, 3);
 
@@ -437,7 +438,6 @@ export default function IbadahTracker() {
     <div className="fixed inset-0 w-full h-full overflow-y-auto bg-slate-50 text-slate-800 font-sans">
       <div className="min-h-full p-4 md:p-8 relative">
         
-        {/* TOMBOL SIMPAN MELAYANG (FLOATING ACTION BUTTON) */}
         {hasUnsavedChanges && (
            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] w-full px-4 sm:w-auto sm:px-0 pointer-events-none">
               <button 
@@ -451,7 +451,6 @@ export default function IbadahTracker() {
            </div>
         )}
 
-        {/* Modal Sync Lock */}
         {showSyncModal && (
           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
              <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl relative text-center">
@@ -479,7 +478,6 @@ export default function IbadahTracker() {
           </div>
         )}
 
-        {/* Modal Pengaturan Aktivitas (Add/Edit) */}
         {actModal.show && (
            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
               <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
@@ -502,7 +500,6 @@ export default function IbadahTracker() {
            </div>
         )}
 
-        {/* Modal View Jurnal */}
         {isViewModalOpen && activeJournal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative">
@@ -514,7 +511,6 @@ export default function IbadahTracker() {
           </div>
         )}
 
-        {/* Toast Notification */}
         {toast && (
           <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[90] bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 border-l-4 border-orange-500 animate-bounce">
             <AlertCircle size={20} className="text-orange-500" /> {toast}
@@ -523,7 +519,6 @@ export default function IbadahTracker() {
 
         <div className="max-w-7xl mx-auto space-y-8 pb-16">
           
-          {/* Header */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 flex flex-row justify-between items-center gap-4 relative overflow-hidden">
             <div className="flex items-center gap-3 sm:gap-4">
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md shrink-0">
@@ -552,10 +547,8 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          {/* Tabel Aktivitas */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden relative">
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
-               {/* Menu Tambah Aktif di Atas */}
                <div className="flex items-center justify-between w-full md:w-auto gap-4">
                   <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                      <span className="w-3 h-3 rounded-full bg-orange-500"></span> Tabel Pelaporan
@@ -607,7 +600,7 @@ export default function IbadahTracker() {
                       </td>
 
                       {daysInMonth.map(d => {
-                        const key = `${d.toISOString().split('T')[0]}-${act.id}`;
+                        const key = `${getLocalDateStr(d)}-${act.id}`;
                         const rec = records[key];
                         return (
                           <td key={key} className="p-2 text-center relative group cursor-pointer border-r border-slate-100/50" onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
@@ -625,11 +618,10 @@ export default function IbadahTracker() {
                                 <p className="text-slate-300">Waktu Isi: {new Date(rec.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                                 <p className="mt-1">
                                   Status: {(() => {
-                                     // Evaluasi TEPAT WAKTU VS RAPELAN di Jendela Info (Tooltip)
                                      const [h, m] = act.time.split(':').map(Number);
                                      const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m).getTime();
                                      const diffMins = (rec.timestamp - targetTime) / 60000;
-                                     const isOnTime = rec.actualDay === d.toISOString().split('T')[0] && diffMins <= 30;
+                                     const isOnTime = rec.actualDay === getLocalDateStr(d) && diffMins <= 30;
                                      
                                      return isOnTime ? (
                                         <span className="text-green-400 font-bold tracking-wide">TEPAT WAKTU</span>
@@ -651,7 +643,6 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          {/* Jurnal */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col">
               <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
@@ -788,7 +779,6 @@ export default function IbadahTracker() {
                   </div>
                </div>
 
-               {/* KLASEMEN DISIPLIN WAKTU (TOP 3 & BOTTOM 3) */}
                <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
                   <h3 className="text-slate-700 font-bold mb-4 text-center">Disiplin Waktu Pelaporan</h3>
                   <p className="text-[10px] text-slate-500 text-center mb-6">Tepat waktu: Maksimal 30 menit dari target pelaksanaan.</p>
