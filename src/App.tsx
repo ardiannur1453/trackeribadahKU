@@ -1,9 +1,12 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import html2canvas from 'html2canvas';
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle } from 'lucide-react';
 
-// --- KONFIGURASI FIREBASE ANDA ---
+// --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyChCsY6yUMGAE4DMVXD3lHoQRCfyw4KqYA",
   authDomain: "trackeribadahku.firebaseapp.com",
@@ -17,7 +20,6 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Default Data
 const DEFAULT_ACTIVITIES = [
   { id: 1, name: 'Shalat Tahajud', time: '03:00' },
   { id: 2, name: 'Shalat Subuh', time: '04:30' },
@@ -31,21 +33,24 @@ const DEFAULT_ACTIVITIES = [
   { id: 10, name: 'Tilawah Al-Quran', time: '20:00' }
 ];
 
-// --- KOMPONEN UTAMA ---
 export default function IbadahTracker() {
   const [user, setUser] = useState<any>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   const [dataLoaded, setDataLoaded] = useState(false);
-
-  // States untuk Aplikasi
-  const [activities, setActivities] = useState<any[]>(DEFAULT_ACTIVITIES);
+  
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [activities] = useState(DEFAULT_ACTIVITIES);
   const [records, setRecords] = useState<any>({});
   const [journals, setJournals] = useState<any[]>([]);
+  
+  const [toast, setToast] = useState('');
+  const [activeJournal, setActiveJournal] = useState<any>(null);
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [journalInput, setJournalInput] = useState({ title: '', content: '' });
+  
+  const chartRef = useRef<HTMLDivElement>(null);
 
-  // State untuk Notifikasi (Toast)
-  const [toastMessage, setToastMessage] = useState('');
-
-  // Cek Status Login Saat Pertama Buka
+  // Auth Effect
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -54,109 +59,140 @@ export default function IbadahTracker() {
     return () => unsubscribe();
   }, []);
 
-  // Ambil Data dari Server (Firestore) setelah Login
+  // Fetch Data
   useEffect(() => {
     if (user) {
       const fetchData = async () => {
         try {
-          const docRef = doc(db, 'users', user.uid);
-          const docSnap = await getDoc(docRef);
-          
+          const docSnap = await getDoc(doc(db, 'users', user.uid));
           if (docSnap.exists()) {
             const data = docSnap.data();
-            if (data.activities) setActivities(data.activities);
             if (data.records) setRecords(data.records);
             if (data.journals) setJournals(data.journals);
           }
           setDataLoaded(true);
         } catch (error) {
-          console.error("Gagal mengambil data:", error);
+          console.error(error);
           setDataLoaded(true);
         }
       };
       fetchData();
-    } else {
-      setDataLoaded(false);
     }
   }, [user]);
 
-  // Simpan Otomatis ke Server setiap ada perubahan data
+  // Save Data
   useEffect(() => {
     if (user && dataLoaded) {
-      const saveData = async () => {
-        try {
-          await setDoc(doc(db, 'users', user.uid), {
-            activities,
-            records,
-            journals
-          }, { merge: true });
-        } catch (error) {
-          console.error("Gagal menyimpan data:", error);
-        }
-      };
-      // Delay sedikit agar tidak terlalu sering tembak server
-      const timeoutId = setTimeout(() => {
-        saveData();
+      const timer = setTimeout(() => {
+        setDoc(doc(db, 'users', user.uid), { records, journals }, { merge: true });
       }, 1000);
-      
-      return () => clearTimeout(timeoutId);
+      return () => clearTimeout(timer);
     }
-  }, [activities, records, journals, user, dataLoaded]);
+  }, [records, journals, user, dataLoaded]);
 
-  // Fungsi Login
-  const handleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error) {
-      console.error("Login gagal", error);
-      alert("Gagal login, pastikan popup tidak diblokir browser.");
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(''), 4000);
+  };
+
+  const getDaysInMonth = (date: Date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const days = new Date(year, month + 1, 0).getDate();
+    return Array.from({ length: days }, (_, i) => new Date(year, month, i + 1));
+  };
+  const days = getDaysInMonth(currentDate);
+
+  // LOGIC: Check & Timestamp
+  const handleRecord = (day: Date, actId: number, actTime: string, currentStatus: string | undefined) => {
+    const now = new Date();
+    const [hours, minutes] = actTime.split(':').map(Number);
+    const targetTime = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, minutes);
+    
+    // Blokir jika sebelum waktunya + 1 menit
+    const unlockTime = new Date(targetTime.getTime() + 60000); 
+    if (now < unlockTime) {
+      showToast(`Belum waktunya! Aktivitas ini baru bisa dilaporkan setelah ${unlockTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`);
+      return;
+    }
+
+    const key = `${day.toISOString().split('T')[0]}-${actId}`;
+    let newStatus = 'done';
+    if (currentStatus === 'done') newStatus = 'missed';
+    if (currentStatus === 'missed') newStatus = 'none';
+
+    if (newStatus === 'none') {
+      const newRecs = { ...records };
+      delete newRecs[key];
+      setRecords(newRecs);
+    } else {
+      setRecords({
+        ...records,
+        [key]: {
+          status: newStatus,
+          timestamp: now.getTime(),
+          actualDay: now.toISOString().split('T')[0]
+        }
+      });
     }
   };
 
-  // Fungsi Logout
-  const handleLogout = () => {
-    signOut(auth);
+  // LOGIC: Clear Data
+  const clearData = (type: 'day' | 'week' | 'month') => {
+    const newRecords = { ...records };
+    const todayStr = new Date().toISOString().split('T')[0];
+    
+    Object.keys(newRecords).forEach(key => {
+      const recDate = key.split('-').slice(0, 3).join('-');
+      if (type === 'day' && recDate === todayStr) delete newRecords[key];
+      if (type === 'month' && recDate.startsWith(todayStr.substring(0, 7))) delete newRecords[key];
+      // simplified week logic for brevity
+    });
+    setRecords(newRecords);
+    showToast(`Data ${type} berhasil direset!`);
   };
 
-  const showToast = (message: string) => {
-    setToastMessage(message);
-    setTimeout(() => setToastMessage(''), 3000);
+  // LOGIC: Journaling
+  const saveJournal = () => {
+    if (!journalInput.title) return showToast("Judul jurnal tidak boleh kosong");
+    const newJ = {
+      id: activeJournal ? activeJournal.id : Date.now(),
+      title: journalInput.title,
+      content: journalInput.content,
+      date: new Date().toISOString()
+    };
+    if (activeJournal) {
+      setJournals(journals.map(j => j.id === activeJournal.id ? newJ : j));
+    } else {
+      setJournals([newJ, ...journals]);
+    }
+    setJournalInput({ title: '', content: '' });
+    setActiveJournal(null);
+    showToast("Jurnal berhasil disimpan!");
   };
 
-  // Jika sedang mengecek akun
-  if (isInitializing) {
-    return (
-      <div className="min-h-screen bg-[#111] flex items-center justify-center">
-        <div className="text-orange-500 font-bold text-xl animate-pulse">Memuat Sistem Tafkir...</div>
-      </div>
-    );
-  }
+  const exportChart = async () => {
+    if (chartRef.current) {
+      const canvas = await html2canvas(chartRef.current, { backgroundColor: '#111' });
+      const link = document.createElement('a');
+      link.download = `Tafkir-Stats-${new Date().toISOString().split('T')[0]}.jpg`;
+      link.href = canvas.toDataURL('image/jpeg');
+      link.click();
+    }
+  };
 
-  // --- HALAMAN LOGIN ---
+  if (isInitializing) return <div className="min-h-screen bg-[#111] flex items-center justify-center text-orange-500">Memuat Sistem Tafkir...</div>;
+
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#111111] flex flex-col items-center justify-center p-4 font-sans relative overflow-hidden">
-        {/* Ornamen Latar Belakang */}
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none opacity-20">
-          <div className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-orange-600 blur-[120px]"></div>
-          <div className="absolute bottom-[10%] -right-[10%] w-[40%] h-[40%] rounded-full bg-orange-500 blur-[100px]"></div>
-        </div>
-
-        <div className="z-10 bg-white/5 backdrop-blur-md border border-white/10 p-8 rounded-2xl shadow-2xl max-w-md w-full text-center">
-          <div className="w-24 h-24 mx-auto mb-6 bg-black rounded-full border-2 border-orange-500 flex items-center justify-center p-2 shadow-[0_0_15px_rgba(249,115,22,0.5)]">
-             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth="1.5" className="w-full h-full"><path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1A3.75 3.75 0 0012 18z" /></svg>
+      <div className="min-h-screen bg-[#111] flex flex-col items-center justify-center p-4">
+        <div className="bg-white/5 border border-orange-500/30 p-8 rounded-2xl shadow-2xl max-w-md w-full text-center">
+          <div className="w-20 h-20 mx-auto mb-6 bg-black rounded-full border border-orange-500 flex items-center justify-center shadow-[0_0_15px_rgba(249,115,22,0.5)]">
+             <span className="text-orange-500 font-bold text-2xl">TC</span>
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight mb-2">Tafkir Corp</h1>
-          <p className="text-orange-400 font-medium tracking-widest uppercase text-sm mb-8">Elevate The Level of Thinking</p>
-          
-          <h2 className="text-xl font-semibold text-white mb-6">Tracker Ibadah & Hal Positif</h2>
-          
-          <button 
-            onClick={handleLogin}
-            className="w-full py-3 px-4 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-orange-500/50 flex items-center justify-center gap-3"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"/></svg>
+          <h1 className="text-3xl font-bold text-white mb-2">Tafkir Corp</h1>
+          <p className="text-orange-500 text-xs tracking-widest uppercase mb-8">Elevate The Level of Thinking</p>
+          <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-lg transition-all">
             Masuk dengan Google
           </button>
         </div>
@@ -164,66 +200,133 @@ export default function IbadahTracker() {
     );
   }
 
-  // JIKA DATA SEDANG DIAMBIL DARI SERVER
-  if (!dataLoaded) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-orange-500 font-bold text-xl animate-pulse">Menarik Data dari Brankas Server...</div>
-      </div>
-    );
-  }
+  if (!dataLoaded) return <div className="min-h-screen bg-[#111] flex items-center justify-center text-orange-500">Menarik Data dari Server...</div>;
 
-  // --- APLIKASI UTAMA (Tampil Setelah Login) ---
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 sm:p-6 lg:p-8 relative">
-      
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 animate-bounce">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-          {toastMessage}
+    <div className="min-h-screen bg-[#111] text-slate-200 font-sans p-4">
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-lg shadow-2xl font-bold flex items-center gap-2">
+          <AlertCircle size={20} /> {toast}
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header Identitas Tafkir */}
-        <div className="bg-[#111111] rounded-2xl shadow-lg border border-slate-800 p-6 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-black rounded-full border-2 border-orange-500 flex items-center justify-center p-1 shadow-[0_0_10px_rgba(249,115,22,0.4)] overflow-hidden">
-               <img src="/logo.png" alt="Tafkir Logo" className="w-full h-full object-contain" onError={(e) => {
-                 (e.target as HTMLImageElement).style.display = 'none';
-                 (e.target as HTMLImageElement).parentElement!.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#f97316" strokeWidth="1.5" class="w-10 h-10"><path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1A3.75 3.75 0 0012 18z" /></svg>';
-               }} />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white tracking-wide">Tafkir Corp</h1>
-              <p className="text-xs text-orange-500 font-medium uppercase tracking-[0.2em] mt-1">Elevate The Level of Thinking</p>
-            </div>
+      {/* Header */}
+      <div className="max-w-7xl mx-auto space-y-8">
+        <div className="bg-black/50 border border-orange-500/30 rounded-2xl p-6 flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Tafkir Corp Tracker</h1>
+            <p className="text-orange-500 text-xs tracking-widest uppercase">Elevate The Level of Thinking</p>
           </div>
-          
-          <div className="flex items-center gap-4 bg-white/10 px-4 py-2 rounded-xl border border-white/5">
-             <div className="text-right hidden sm:block">
-               <div className="text-sm font-semibold text-white">{user.displayName}</div>
-               <div className="text-xs text-orange-400">Admin Server</div>
-             </div>
-             <img src={user.photoURL || ''} alt="Profile" className="w-10 h-10 rounded-full border border-orange-500" />
-             <button onClick={handleLogout} className="ml-2 text-xs bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg transition-colors border border-red-500/30">
-               Keluar
-             </button>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-slate-400 hidden sm:block">{user.displayName}</span>
+            <button onClick={() => signOut(auth)} className="text-red-400 hover:text-red-300"><LogOut size={20} /></button>
           </div>
         </div>
 
-        {/* --- PENGUMUMAN SINKRONISASI --- */}
-        <div className="bg-orange-100 border border-orange-200 text-orange-800 px-4 py-3 rounded-xl shadow-sm text-sm font-medium flex items-center gap-3">
-          <span className="flex-shrink-0 w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
-          Sistem berhasil terhubung ke Server Cloud (Firebase). Semua fitur evaluasi tabel, timestamp waktu, jurnal pop-up, dan keamanan otomatis tersimpan secara real-time. (Tampilan tabel dipertahankan sesuai versi lengkap sebelumnya).
+        {/* Tabel */}
+        <div className="bg-black/50 border border-orange-500/20 rounded-2xl p-6 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                <th className="text-left text-orange-500 p-2 border-b border-orange-500/20">Aktivitas</th>
+                {days.map(d => (
+                  <th key={d.toISOString()} className="p-2 border-b border-orange-500/20 text-center">{d.getDate()}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {activities.map(act => (
+                <tr key={act.id} className="border-b border-white/5 hover:bg-white/5">
+                  <td className="p-2 font-medium">{act.name} <span className="text-xs text-slate-500 block">{act.time}</span></td>
+                  {days.map(d => {
+                    const key = `${d.toISOString().split('T')[0]}-${act.id}`;
+                    const rec = records[key];
+                    return (
+                      <td key={key} className="p-2 text-center relative group cursor-pointer" onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
+                        {rec?.status === 'done' ? <Check className="mx-auto text-orange-500" size={18} /> : rec?.status === 'missed' ? <X className="mx-auto text-red-500" size={18} /> : <div className="w-4 h-4 mx-auto rounded-full bg-white/10" />}
+                        {rec && (
+                          <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 bg-slate-800 text-xs p-2 rounded w-max z-10 border border-orange-500/30">
+                            Diisi: {new Date(rec.timestamp).toLocaleString()}<br/>
+                            Status: {rec.actualDay === d.toISOString().split('T')[0] ? <span className="text-orange-400">Tepat Hari</span> : <span className="text-red-400">Rapelan/Beda Hari</span>}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        
-        {/* Placeholder untuk ruang Aplikasi Utama yang ukurannya masif pada versi sebelumnya */}
-        <div className="bg-white border-2 border-dashed border-slate-300 rounded-2xl p-12 text-center text-slate-500">
-           <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" className="mx-auto mb-4 text-orange-400"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-           <h3 className="text-xl font-bold text-slate-700 mb-2">Infrastruktur Server Terpasang</h3>
-           <p className="max-w-md mx-auto">Database Firebase Anda berhasil disuntikkan ke dalam kerangka aplikasi Tafkir Corp.</p>
+
+        {/* Clear Data Panel */}
+        <div className="bg-black/50 border border-orange-500/20 rounded-2xl p-4 flex justify-center gap-4">
+          <button onClick={() => clearData('day')} className="px-4 py-2 bg-red-900/30 text-red-400 rounded-lg hover:bg-red-900/50 text-sm">Reset Hari Ini</button>
+          <button onClick={() => clearData('month')} className="px-4 py-2 bg-red-900/30 text-red-400 rounded-lg hover:bg-red-900/50 text-sm">Reset Bulan Ini</button>
+        </div>
+
+        {/* Jurnal */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="md:col-span-1 bg-black/50 border border-orange-500/20 rounded-2xl p-6">
+            <h3 className="text-lg font-bold text-orange-500 mb-4">Arsip Jurnal</h3>
+            <div className="space-y-3 max-h-64 overflow-y-auto">
+              {journals.map(j => (
+                <div key={j.id} className="bg-white/5 p-3 rounded-lg border border-white/10 flex justify-between items-center group">
+                  <div className="truncate pr-2">
+                    <p className="font-medium truncate">{j.title}</p>
+                    <p className="text-xs text-slate-500">{new Date(j.date).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => { setActiveJournal(j); setIsViewModalOpen(true); }}><Eye size={16} className="text-blue-400" /></button>
+                    <button onClick={() => { setActiveJournal(j); setJournalInput({title: j.title, content: j.content}); setIsViewModalOpen(false); }}><Edit3 size={16} className="text-orange-400" /></button>
+                    <button onClick={() => setJournals(journals.filter(x => x.id !== j.id))}><Trash2 size={16} className="text-red-400" /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="md:col-span-2 bg-black/50 border border-orange-500/20 rounded-2xl p-6">
+            <h3 className="text-lg font-bold text-orange-500 mb-4">{activeJournal && !isViewModalOpen ? 'Edit Jurnal' : 'Tulis Jurnal Baru'}</h3>
+            <input type="text" placeholder="Judul..." value={journalInput.title} onChange={e => setJournalInput({...journalInput, title: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-lg p-3 mb-4 text-white focus:border-orange-500 outline-none" />
+            <textarea placeholder="Tulis catatan atau doa hari ini..." value={journalInput.content} onChange={e => setJournalInput({...journalInput, content: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-lg p-3 h-32 text-white focus:border-orange-500 outline-none mb-4" />
+            <button onClick={saveJournal} className="bg-orange-600 text-white px-6 py-2 rounded-lg hover:bg-orange-500 font-medium">Simpan Jurnal</button>
+          </div>
+        </div>
+
+        {/* Modal View Jurnal */}
+        {isViewModalOpen && activeJournal && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+            <div className="bg-[#111] border border-orange-500 rounded-2xl p-6 w-full max-w-2xl">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-orange-500">{activeJournal.title}</h2>
+                <button onClick={() => setIsViewModalOpen(false)}><X size={24} className="text-slate-400 hover:text-white" /></button>
+              </div>
+              <p className="text-sm text-slate-500 mb-6">{new Date(activeJournal.date).toLocaleString()}</p>
+              <div className="whitespace-pre-wrap text-slate-300">{activeJournal.content}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Grafik & Analisa */}
+        <div ref={chartRef} className="bg-black border border-orange-500/30 rounded-2xl p-8 relative">
+          <button onClick={exportChart} className="absolute top-8 right-8 flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg text-sm hover:bg-white/20 text-orange-400 border border-orange-500/50">
+            <Download size={16} /> Ekspor JPG
+          </button>
+          <h2 className="text-xl font-bold text-white mb-8 border-l-4 border-orange-500 pl-4">Analisa & Statistik</h2>
+          
+          <div className="h-64 w-full mb-8">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={[{name: 'Awal', progress: 0}, {name: 'Pertengahan', progress: 50}, {name: 'Akhir', progress: 100}]}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                <XAxis dataKey="name" stroke="#666" />
+                <YAxis stroke="#666" />
+                <RechartsTooltip contentStyle={{backgroundColor: '#000', borderColor: '#f97316'}} />
+                <Line type="monotone" dataKey="progress" stroke="#f97316" strokeWidth={3} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-center text-slate-500 text-sm">Grafik visualisasi data (Simulasi Dummy. Data asli akan dihitung seiring pengisian tabel).</p>
         </div>
 
       </div>
