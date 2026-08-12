@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import html2canvas from 'html2canvas';
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle } from 'lucide-react';
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw } from 'lucide-react';
 
 // --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
@@ -38,7 +37,7 @@ export default function IbadahTracker() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [dataLoaded, setDataLoaded] = useState(false);
   
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate] = useState(new Date());
   const [activities] = useState(DEFAULT_ACTIVITIES);
   const [records, setRecords] = useState<any>({});
   const [journals, setJournals] = useState<any[]>([]);
@@ -47,6 +46,8 @@ export default function IbadahTracker() {
   const [activeJournal, setActiveJournal] = useState<any>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [journalInput, setJournalInput] = useState({ title: '', content: '' });
+  
+  const [clearScope, setClearScope] = useState<'day' | 'week' | 'month'>('day');
   
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -103,7 +104,7 @@ export default function IbadahTracker() {
   };
   const days = getDaysInMonth(currentDate);
 
-  // LOGIC: Check & Timestamp
+  // LOGIC: Check & Timestamp dengan Blokir 1 Menit
   const handleRecord = (day: Date, actId: number, actTime: string, currentStatus: string | undefined) => {
     const now = new Date();
     const [hours, minutes] = actTime.split(':').map(Number);
@@ -112,7 +113,7 @@ export default function IbadahTracker() {
     // Blokir jika sebelum waktunya + 1 menit
     const unlockTime = new Date(targetTime.getTime() + 60000); 
     if (now < unlockTime) {
-      showToast(`Belum waktunya! Aktivitas ini baru bisa dilaporkan setelah ${unlockTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`);
+      showToast(`Belum waktunya! Laporan dibuka pukul ${unlockTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`);
       return;
     }
 
@@ -131,25 +132,36 @@ export default function IbadahTracker() {
         [key]: {
           status: newStatus,
           timestamp: now.getTime(),
-          actualDay: now.toISOString().split('T')[0]
+          actualDay: now.toISOString().split('T')[0] // Mencatat hari riil saat ditekan
         }
       });
     }
   };
 
-  // LOGIC: Clear Data
-  const clearData = (type: 'day' | 'week' | 'month') => {
+  // LOGIC: Clear Data dengan Tombol Update
+  const executeClearData = () => {
     const newRecords = { ...records };
-    const todayStr = new Date().toISOString().split('T')[0];
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
     
     Object.keys(newRecords).forEach(key => {
-      const recDate = key.split('-').slice(0, 3).join('-');
-      if (type === 'day' && recDate === todayStr) delete newRecords[key];
-      if (type === 'month' && recDate.startsWith(todayStr.substring(0, 7))) delete newRecords[key];
-      // simplified week logic for brevity
+      const recDateStr = key.split('-').slice(0, 3).join('-');
+      const recDate = new Date(recDateStr);
+      
+      if (clearScope === 'day' && recDateStr === todayStr) {
+        delete newRecords[key];
+      } else if (clearScope === 'month' && recDateStr.startsWith(todayStr.substring(0, 7))) {
+        delete newRecords[key];
+      } else if (clearScope === 'week') {
+        const diff = Math.floor((today.getTime() - recDate.getTime()) / (1000 * 60 * 60 * 24));
+        // Reset jika dalam rentang 7 hari ke belakang
+        if (diff >= 0 && diff <= 7) {
+          delete newRecords[key];
+        }
+      }
     });
     setRecords(newRecords);
-    showToast(`Data ${type} berhasil direset!`);
+    showToast(`Data ${clearScope === 'day' ? 'Harian' : clearScope === 'week' ? 'Mingguan' : 'Bulanan'} berhasil direset!`);
   };
 
   // LOGIC: Journaling
@@ -173,7 +185,7 @@ export default function IbadahTracker() {
 
   const exportChart = async () => {
     if (chartRef.current) {
-      const canvas = await html2canvas(chartRef.current, { backgroundColor: '#111' });
+      const canvas = await html2canvas(chartRef.current, { backgroundColor: '#ffffff' });
       const link = document.createElement('a');
       link.download = `Tafkir-Stats-${new Date().toISOString().split('T')[0]}.jpg`;
       link.href = canvas.toDataURL('image/jpeg');
@@ -181,18 +193,64 @@ export default function IbadahTracker() {
     }
   };
 
+  // Kalkulasi Statistik
+  const calcStats = () => {
+    let totalDone = 0;
+    let totalMissed = 0;
+    
+    // Analisis Kedisiplinan Waktu (Tepat vs Terlambat)
+    const timeStats: Record<number, { onTime: number, totalValid: number }> = {};
+    activities.forEach(a => timeStats[a.id] = { onTime: 0, totalValid: 0 });
+
+    Object.entries(records).forEach(([key, val]: [string, any]) => {
+      if (val.status === 'done') totalDone++;
+      if (val.status === 'missed') totalMissed++;
+
+      if (val.status === 'done' || val.status === 'missed') {
+        const [y, m, d, actId] = key.split('-');
+        const activityId = parseInt(actId);
+        const recordDateStr = `${y}-${m}-${d}`;
+        const activity = activities.find(a => a.id === activityId);
+        
+        if (activity) {
+          timeStats[activityId].totalValid++;
+          // Cek Tepat Waktu: Tanggal isi harus sama dengan tanggal jadwal, dan maksimal lewat 1 jam
+          if (val.actualDay === recordDateStr) {
+            const [h, min] = activity.time.split(':').map(Number);
+            const targetTime = new Date(parseInt(y), parseInt(m)-1, parseInt(d), h, min).getTime();
+            const timeDiffHours = (val.timestamp - targetTime) / (1000 * 60 * 60);
+            
+            if (timeDiffHours <= 1 && timeDiffHours >= -2) { // Tepat waktu (max 1 jam setelah, 2 jam sebelum)
+              timeStats[activityId].onTime++;
+            }
+          }
+        }
+      }
+    });
+
+    const totalFilled = totalDone + totalMissed;
+    const donePercent = totalFilled ? Math.round((totalDone / totalFilled) * 100) : 0;
+    const missedPercent = totalFilled ? Math.round((totalMissed / totalFilled) * 100) : 0;
+
+    return { totalDone, totalMissed, donePercent, missedPercent, timeStats };
+  };
+
+  const stats = calcStats();
+
   if (isInitializing) return <div className="min-h-screen bg-[#111] flex items-center justify-center text-orange-500">Memuat Sistem Tafkir...</div>;
 
+  // --- HALAMAN LOGIN ---
   if (!user) {
     return (
       <div className="min-h-screen bg-[#111] flex flex-col items-center justify-center p-4">
-        <div className="bg-white/5 border border-orange-500/30 p-8 rounded-2xl shadow-2xl max-w-md w-full text-center">
+        <div className="bg-white/5 border border-orange-500/30 p-8 rounded-2xl shadow-2xl max-w-md w-full text-center relative overflow-hidden">
+           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-32 bg-orange-500/20 rounded-full blur-3xl pointer-events-none"></div>
           <div className="w-20 h-20 mx-auto mb-6 bg-black rounded-full border border-orange-500 flex items-center justify-center shadow-[0_0_15px_rgba(249,115,22,0.5)]">
              <span className="text-orange-500 font-bold text-2xl">TC</span>
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">Tafkir Corp</h1>
           <p className="text-orange-500 text-xs tracking-widest uppercase mb-8">Elevate The Level of Thinking</p>
-          <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-lg transition-all">
+          <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-orange-500/30">
             Masuk dengan Google
           </button>
         </div>
@@ -200,133 +258,236 @@ export default function IbadahTracker() {
     );
   }
 
-  if (!dataLoaded) return <div className="min-h-screen bg-[#111] flex items-center justify-center text-orange-500">Menarik Data dari Server...</div>;
+  if (!dataLoaded) return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-orange-500 font-bold">Menarik Data dari Brankas Server...</div>;
 
+  // --- HALAMAN UTAMA (TEMA TERANG/SLATE-50) ---
   return (
-    <div className="min-h-screen bg-[#111] text-slate-200 font-sans p-4">
-      {/* Toast */}
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 md:p-8">
+      {/* Toast Notification */}
       {toast && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-red-600 text-white px-6 py-3 rounded-lg shadow-2xl font-bold flex items-center gap-2">
-          <AlertCircle size={20} /> {toast}
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 border-l-4 border-orange-500 animate-bounce">
+          <AlertCircle size={20} className="text-orange-500" /> {toast}
         </div>
       )}
 
-      {/* Header */}
       <div className="max-w-7xl mx-auto space-y-8">
-        <div className="bg-black/50 border border-orange-500/30 rounded-2xl p-6 flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-bold text-white">Tafkir Corp Tracker</h1>
-            <p className="text-orange-500 text-xs tracking-widest uppercase">Elevate The Level of Thinking</p>
-          </div>
+        
+        {/* Header Identitas Tafkir */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-4">
-            <span className="text-sm text-slate-400 hidden sm:block">{user.displayName}</span>
-            <button onClick={() => signOut(auth)} className="text-red-400 hover:text-red-300"><LogOut size={20} /></button>
+            <div className="w-16 h-16 bg-slate-900 rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md">
+               <span className="text-orange-500 font-bold text-xl">TC</span>
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900 tracking-wide">Tafkir Corp</h1>
+              <p className="text-xs text-orange-600 font-bold uppercase tracking-[0.2em] mt-1">Elevate The Level of Thinking</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4 bg-slate-100 px-4 py-2 rounded-xl border border-slate-200">
+             <div className="text-right hidden sm:block">
+               <div className="text-sm font-semibold text-slate-800">{user.displayName}</div>
+               <div className="text-xs text-slate-500">Tersinkronisasi Cloud</div>
+             </div>
+             <button onClick={() => signOut(auth)} className="ml-2 bg-red-100 text-red-600 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
+               <LogOut size={16}/> Keluar
+             </button>
           </div>
         </div>
 
-        {/* Tabel */}
-        <div className="bg-black/50 border border-orange-500/20 rounded-2xl p-6 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <th className="text-left text-orange-500 p-2 border-b border-orange-500/20">Aktivitas</th>
-                {days.map(d => (
-                  <th key={d.toISOString()} className="p-2 border-b border-orange-500/20 text-center">{d.getDate()}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {activities.map(act => (
-                <tr key={act.id} className="border-b border-white/5 hover:bg-white/5">
-                  <td className="p-2 font-medium">{act.name} <span className="text-xs text-slate-500 block">{act.time}</span></td>
-                  {days.map(d => {
-                    const key = `${d.toISOString().split('T')[0]}-${act.id}`;
-                    const rec = records[key];
-                    return (
-                      <td key={key} className="p-2 text-center relative group cursor-pointer" onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
-                        {rec?.status === 'done' ? <Check className="mx-auto text-orange-500" size={18} /> : rec?.status === 'missed' ? <X className="mx-auto text-red-500" size={18} /> : <div className="w-4 h-4 mx-auto rounded-full bg-white/10" />}
-                        {rec && (
-                          <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 bg-slate-800 text-xs p-2 rounded w-max z-10 border border-orange-500/30">
-                            Diisi: {new Date(rec.timestamp).toLocaleString()}<br/>
-                            Status: {rec.actualDay === d.toISOString().split('T')[0] ? <span className="text-orange-400">Tepat Hari</span> : <span className="text-red-400">Rapelan/Beda Hari</span>}
-                          </div>
-                        )}
-                      </td>
-                    );
-                  })}
+        {/* Tabel Aktivitas (Desain Terbaca & Lengkap) */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="p-4 border-b border-slate-100 bg-slate-50">
+             <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-orange-500"></span>
+                Tabel Pelaporan Harian
+             </h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-100 border-b border-slate-200">
+                <tr>
+                  <th className="text-left text-slate-700 font-bold p-4 sticky left-0 bg-slate-100 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[150px]">Aktivitas</th>
+                  {days.map(d => (
+                    <th key={d.toISOString()} className="p-3 text-center font-semibold text-slate-600 min-w-[40px]">{d.getDate()}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {activities.map((act, idx) => (
+                  <tr key={act.id} className={idx % 2 === 0 ? 'bg-white hover:bg-orange-50/50' : 'bg-slate-50 hover:bg-orange-50/50'}>
+                    <td className="p-4 font-medium text-slate-800 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-100" style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                      {act.name} <span className="text-xs text-orange-600 font-bold ml-2 bg-orange-100 px-2 py-0.5 rounded">{act.time}</span>
+                    </td>
+                    {days.map(d => {
+                      const key = `${d.toISOString().split('T')[0]}-${act.id}`;
+                      const rec = records[key];
+                      return (
+                        <td key={key} className="p-2 text-center relative group cursor-pointer border-r border-slate-100/50" onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
+                          {rec?.status === 'done' ? (
+                             <div className="w-7 h-7 mx-auto bg-green-100 rounded flex items-center justify-center border border-green-200"><Check className="text-green-600" size={16} /></div>
+                          ) : rec?.status === 'missed' ? (
+                             <div className="w-7 h-7 mx-auto bg-red-100 rounded flex items-center justify-center border border-red-200"><X className="text-red-600" size={16} /></div>
+                          ) : (
+                             <div className="w-7 h-7 mx-auto rounded bg-slate-100 border border-slate-200 hover:border-orange-300 transition-colors" />
+                          )}
+                          
+                          {/* Tooltip Pintar */}
+                          {rec && (
+                            <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 bg-slate-900 text-white text-xs p-3 rounded-lg shadow-xl w-max z-30 pointer-events-none">
+                              <p className="font-semibold border-b border-slate-700 pb-1 mb-1">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
+                              <p className="text-slate-300">Waktu Isi: {new Date(rec.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                              <p className="mt-1">
+                                Status: {rec.actualDay === d.toISOString().split('T')[0] 
+                                  ? <span className="text-green-400 font-bold tracking-wide">TEPAT HARI</span> 
+                                  : <span className="text-red-400 font-bold tracking-wide">RAPELAN</span>}
+                              </p>
+                              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45"></div>
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          
+          {/* Panel Clear Data Terintegrasi */}
+          <div className="bg-slate-100 p-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+             <div className="flex items-center gap-4 text-sm font-medium text-slate-700">
+               <span className="flex items-center gap-2"><Trash2 size={16} className="text-slate-400"/> Hapus Data:</span>
+               <label className="flex items-center gap-1 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === 'day'} onChange={() => setClearScope('day')} className="accent-orange-600" /> Harian</label>
+               <label className="flex items-center gap-1 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === 'week'} onChange={() => setClearScope('week')} className="accent-orange-600" /> Mingguan</label>
+               <label className="flex items-center gap-1 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === 'month'} onChange={() => setClearScope('month')} className="accent-orange-600" /> Bulanan</label>
+             </div>
+             <button onClick={executeClearData} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm transition-colors">
+               <RefreshCw size={16} /> Update (Eksekusi Hapus)
+             </button>
+          </div>
         </div>
 
-        {/* Clear Data Panel */}
-        <div className="bg-black/50 border border-orange-500/20 rounded-2xl p-4 flex justify-center gap-4">
-          <button onClick={() => clearData('day')} className="px-4 py-2 bg-red-900/30 text-red-400 rounded-lg hover:bg-red-900/50 text-sm">Reset Hari Ini</button>
-          <button onClick={() => clearData('month')} className="px-4 py-2 bg-red-900/30 text-red-400 rounded-lg hover:bg-red-900/50 text-sm">Reset Bulan Ini</button>
-        </div>
-
-        {/* Jurnal */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="md:col-span-1 bg-black/50 border border-orange-500/20 rounded-2xl p-6">
-            <h3 className="text-lg font-bold text-orange-500 mb-4">Arsip Jurnal</h3>
-            <div className="space-y-3 max-h-64 overflow-y-auto">
-              {journals.map(j => (
-                <div key={j.id} className="bg-white/5 p-3 rounded-lg border border-white/10 flex justify-between items-center group">
+        {/* Manajemen Jurnal Pop-up */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col">
+            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
+              <span className="w-3 h-3 rounded-full bg-orange-500"></span> Arsip Jurnal
+            </h3>
+            <div className="space-y-3 flex-1 overflow-y-auto max-h-[300px] pr-2">
+              {journals.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">Belum ada jurnal tersimpan.</p> : journals.map(j => (
+                <div key={j.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-start group hover:border-orange-300 transition-colors">
                   <div className="truncate pr-2">
-                    <p className="font-medium truncate">{j.title}</p>
-                    <p className="text-xs text-slate-500">{new Date(j.date).toLocaleDateString()}</p>
+                    <p className="font-bold text-slate-700 truncate">{j.title}</p>
+                    <p className="text-xs text-slate-500 mt-1">{new Date(j.date).toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</p>
                   </div>
                   <div className="flex gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => { setActiveJournal(j); setIsViewModalOpen(true); }}><Eye size={16} className="text-blue-400" /></button>
-                    <button onClick={() => { setActiveJournal(j); setJournalInput({title: j.title, content: j.content}); setIsViewModalOpen(false); }}><Edit3 size={16} className="text-orange-400" /></button>
-                    <button onClick={() => setJournals(journals.filter(x => x.id !== j.id))}><Trash2 size={16} className="text-red-400" /></button>
+                    <button onClick={() => { setActiveJournal(j); setIsViewModalOpen(true); }} className="p-1 hover:bg-slate-200 rounded text-blue-600"><Eye size={16} /></button>
+                    <button onClick={() => { setActiveJournal(j); setJournalInput({title: j.title, content: j.content}); setIsViewModalOpen(false); }} className="p-1 hover:bg-slate-200 rounded text-orange-600"><Edit3 size={16} /></button>
+                    <button onClick={() => setJournals(journals.filter(x => x.id !== j.id))} className="p-1 hover:bg-slate-200 rounded text-red-600"><Trash2 size={16} /></button>
                   </div>
                 </div>
               ))}
             </div>
           </div>
-          <div className="md:col-span-2 bg-black/50 border border-orange-500/20 rounded-2xl p-6">
-            <h3 className="text-lg font-bold text-orange-500 mb-4">{activeJournal && !isViewModalOpen ? 'Edit Jurnal' : 'Tulis Jurnal Baru'}</h3>
-            <input type="text" placeholder="Judul..." value={journalInput.title} onChange={e => setJournalInput({...journalInput, title: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-lg p-3 mb-4 text-white focus:border-orange-500 outline-none" />
-            <textarea placeholder="Tulis catatan atau doa hari ini..." value={journalInput.content} onChange={e => setJournalInput({...journalInput, content: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded-lg p-3 h-32 text-white focus:border-orange-500 outline-none mb-4" />
-            <button onClick={saveJournal} className="bg-orange-600 text-white px-6 py-2 rounded-lg hover:bg-orange-500 font-medium">Simpan Jurnal</button>
+          
+          <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
+              <span className="w-3 h-3 rounded-full bg-orange-500"></span> {activeJournal && !isViewModalOpen ? 'Edit Jurnal' : 'Tulis Jurnal Baru'}
+            </h3>
+            <input type="text" placeholder="Judul Jurnal / Catatan..." value={journalInput.title} onChange={e => setJournalInput({...journalInput, title: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all font-medium" />
+            <textarea placeholder="Tuliskan evaluasi, syukur, atau doa Anda hari ini..." value={journalInput.content} onChange={e => setJournalInput({...journalInput, content: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 h-40 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all resize-none mb-4" />
+            <div className="flex justify-end">
+               <button onClick={saveJournal} className="bg-orange-600 text-white px-6 py-2.5 rounded-xl hover:bg-orange-700 font-bold shadow-md shadow-orange-500/20 transition-all">Simpan Jurnal</button>
+            </div>
           </div>
         </div>
 
         {/* Modal View Jurnal */}
         {isViewModalOpen && activeJournal && (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-            <div className="bg-[#111] border border-orange-500 rounded-2xl p-6 w-full max-w-2xl">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold text-orange-500">{activeJournal.title}</h2>
-                <button onClick={() => setIsViewModalOpen(false)}><X size={24} className="text-slate-400 hover:text-white" /></button>
-              </div>
-              <p className="text-sm text-slate-500 mb-6">{new Date(activeJournal.date).toLocaleString()}</p>
-              <div className="whitespace-pre-wrap text-slate-300">{activeJournal.content}</div>
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative">
+              <button onClick={() => setIsViewModalOpen(false)} className="absolute top-6 right-6 p-2 bg-slate-100 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
+              <h2 className="text-2xl font-bold text-slate-800 mb-2 pr-10">{activeJournal.title}</h2>
+              <p className="text-sm text-orange-600 font-medium mb-6">{new Date(activeJournal.date).toLocaleString('id-ID', {weekday: 'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'})}</p>
+              <div className="whitespace-pre-wrap text-slate-700 leading-relaxed bg-slate-50 p-6 rounded-2xl border border-slate-100 max-h-[60vh] overflow-y-auto">{activeJournal.content}</div>
             </div>
           </div>
         )}
 
-        {/* Grafik & Analisa */}
-        <div ref={chartRef} className="bg-black border border-orange-500/30 rounded-2xl p-8 relative">
-          <button onClick={exportChart} className="absolute top-8 right-8 flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg text-sm hover:bg-white/20 text-orange-400 border border-orange-500/50">
-            <Download size={16} /> Ekspor JPG
+        {/* Area Analisa & Ekspor (Khusus Area Ini yang Diekspor) */}
+        <div ref={chartRef} className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 relative">
+          <button onClick={exportChart} className="absolute top-8 right-8 flex items-center gap-2 bg-orange-50 hover:bg-orange-100 text-orange-600 px-4 py-2 rounded-xl text-sm font-bold border border-orange-200 transition-colors">
+            <Download size={16} /> Ekspor Laporan JPG
           </button>
-          <h2 className="text-xl font-bold text-white mb-8 border-l-4 border-orange-500 pl-4">Analisa & Statistik</h2>
           
-          <div className="h-64 w-full mb-8">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={[{name: 'Awal', progress: 0}, {name: 'Pertengahan', progress: 50}, {name: 'Akhir', progress: 100}]}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis dataKey="name" stroke="#666" />
-                <YAxis stroke="#666" />
-                <RechartsTooltip contentStyle={{backgroundColor: '#000', borderColor: '#f97316'}} />
-                <Line type="monotone" dataKey="progress" stroke="#f97316" strokeWidth={3} />
-              </LineChart>
-            </ResponsiveContainer>
+          <h2 className="text-xl font-bold text-slate-800 mb-8 border-l-4 border-orange-500 pl-4">Analisa Kuantitas & Kedisiplinan</h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+             {/* Box Kuantitas */}
+             <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
+                <h3 className="text-slate-700 font-bold mb-6 text-center">Evaluasi Kuantitas Ibadah</h3>
+                
+                <div className="space-y-6">
+                   <div>
+                     <div className="flex justify-between text-sm font-semibold mb-2 text-slate-600">
+                        <span>Terlaksana ({stats.totalDone}x)</span>
+                        <span className="text-green-600">{stats.donePercent}%</span>
+                     </div>
+                     <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-green-500 rounded-full transition-all duration-1000" style={{ width: `${stats.donePercent}%` }}></div>
+                     </div>
+                   </div>
+
+                   <div>
+                     <div className="flex justify-between text-sm font-semibold mb-2 text-slate-600">
+                        <span>Terlewat/Bolong ({stats.totalMissed}x)</span>
+                        <span className="text-red-500">{stats.missedPercent}%</span>
+                     </div>
+                     <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-red-500 rounded-full transition-all duration-1000" style={{ width: `${stats.missedPercent}%` }}></div>
+                     </div>
+                   </div>
+                </div>
+             </div>
+
+             {/* Box Kedisiplinan */}
+             <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
+                <h3 className="text-slate-700 font-bold mb-4 text-center">Disiplin Lapor Sesuai Waktu (Tanpa Rapel)</h3>
+                <p className="text-xs text-slate-500 text-center mb-6">Persentase pelaporan Tepat Waktu (Max 1 jam setelah aktivitas)</p>
+                
+                <div className="space-y-4 max-h-[200px] overflow-y-auto pr-2">
+                   {activities.map(act => {
+                      const stat = stats.timeStats[act.id];
+                      // Menampilkan jika minimal ada 1 data laporan valid
+                      if (stat.totalValid === 0) return null;
+                      
+                      const onTimePercent = Math.round((stat.onTime / stat.totalValid) * 100);
+                      
+                      return (
+                         <div key={act.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
+                            <span className="text-sm font-medium text-slate-700">{act.name}</span>
+                            <div className="flex items-center gap-3">
+                               <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full ${onTimePercent >= 80 ? 'bg-green-500' : onTimePercent >= 50 ? 'bg-orange-400' : 'bg-red-500'}`} style={{ width: `${onTimePercent}%` }}></div>
+                               </div>
+                               <span className={`text-sm font-bold min-w-[40px] text-right ${onTimePercent >= 80 ? 'text-green-600' : onTimePercent >= 50 ? 'text-orange-500' : 'text-red-500'}`}>
+                                  {onTimePercent}%
+                               </span>
+                            </div>
+                         </div>
+                      );
+                   })}
+                   {activities.every(a => stats.timeStats[a.id].totalValid === 0) && (
+                      <div className="text-center py-6 text-slate-400 text-sm italic border-2 border-dashed border-slate-200 rounded-xl">
+                         Belum ada aktivitas yang dilaporkan secara valid.
+                      </div>
+                   )}
+                </div>
+             </div>
           </div>
-          <p className="text-center text-slate-500 text-sm">Grafik visualisasi data (Simulasi Dummy. Data asli akan dihitung seiring pengisian tabel).</p>
+          <div className="mt-8 pt-4 border-t border-slate-100 text-center">
+             <span className="text-orange-500 font-bold tracking-widest text-xs uppercase opacity-50">Tafkir Corp Internal System</span>
+          </div>
         </div>
 
       </div>
