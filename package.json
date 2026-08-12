@@ -11,8 +11,11 @@
   },
   "dependencies": {
     "firebase": "^10.0.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "html2canvas": "^1.4.1",
+    "lucide-react": "^0.292.0",
+    "recharts": "^2.10.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
