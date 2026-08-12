@@ -20,7 +20,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// --- HELPER ZONA WAKTU LOKAL (SOLUSI BUG RAPELAN) ---
+// --- HELPER ZONA WAKTU LOKAL ---
 const getLocalDateStr = (d: Date) => {
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -28,17 +28,18 @@ const getLocalDateStr = (d: Date) => {
   return `${year}-${month}-${day}`;
 };
 
+// PERBAIKAN POIN 2 & 3: Default Aktivitas Diperbarui
 const DEFAULT_ACTIVITIES = [
-  { id: 1, name: 'Shalat Tahajud', time: '03:00' },
-  { id: 2, name: 'Shalat Subuh', time: '04:30' },
+  { id: 1, name: 'Shalat Tahajud Berjamaah', time: '03:00' },
+  { id: 2, name: 'Shalat Subuh Berjamaah', time: '04:30' },
   { id: 3, name: 'Dzikir Pagi', time: '05:00' },
-  { id: 4, name: 'Shalat Dhuha', time: '09:00' },
-  { id: 5, name: 'Shalat Dzuhur', time: '12:00' },
-  { id: 6, name: 'Shalat Ashar', time: '15:15' },
-  { id: 7, name: 'Shalat Maghrib', time: '18:00' },
+  { id: 4, name: 'Shalat Dhuha Berjamaah', time: '09:00' },
+  { id: 5, name: 'Shalat Dzuhur Berjamaah', time: '12:00' },
+  { id: 6, name: 'Shalat Ashar Berjamaah', time: '15:15' },
+  { id: 7, name: 'Shalat Maghrib Berjamaah', time: '18:00' },
+  { id: 10, name: 'Tilawah Al-Quran', time: '18:15' }, // Diubah ke 18:15 agar berada di antara Maghrib & Dzikir Petang
   { id: 8, name: 'Dzikir Petang', time: '18:30' },
-  { id: 9, name: 'Shalat Isya', time: '19:15' },
-  { id: 10, name: 'Tilawah Al-Quran', time: '20:00' }
+  { id: 9, name: 'Shalat Isya Berjamaah', time: '19:15' }
 ];
 
 const MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
@@ -223,13 +224,23 @@ export default function IbadahTracker() {
     const [hours, minutes] = actTime.split(':').map(Number);
     const targetTime = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, minutes);
     
-    const unlockTime = new Date(targetTime.getTime() + 60000); 
-    if (now < unlockTime) {
-      showToast(`Belum waktunya! Laporan dibuka pukul ${unlockTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`);
-      return;
+    const todayStr = getLocalDateStr(now);
+    const clickDayStr = getLocalDateStr(day);
+
+    if (day > now && clickDayStr !== todayStr) {
+        showToast("Belum waktunya! Tidak bisa mengisi aktivitas untuk hari esok.");
+        return;
     }
 
-    const key = `${getLocalDateStr(day)}-${actId}`;
+    if (clickDayStr === todayStr) {
+        const unlockTime = new Date(targetTime.getTime() + 60000); 
+        if (now < unlockTime) {
+            showToast(`Belum waktunya! Laporan dibuka pukul ${unlockTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`);
+            return;
+        }
+    }
+
+    const key = `${clickDayStr}-${actId}`;
     let newStatus = 'done';
     if (currentStatus === 'done') newStatus = 'missed';
     if (currentStatus === 'missed') newStatus = 'none';
@@ -241,7 +252,7 @@ export default function IbadahTracker() {
       newRecs[key] = {
         status: newStatus,
         timestamp: now.getTime(),
-        actualDay: getLocalDateStr(now)
+        actualDay: todayStr
       };
     }
     setRecords(newRecs);
@@ -282,7 +293,7 @@ export default function IbadahTracker() {
       id: activeJournal ? activeJournal.id : Date.now(),
       title: journalInput.title,
       content: journalInput.content,
-      date: new Date().toISOString() // Format absolut aman untuk jurnal
+      date: new Date().toISOString() 
     };
     if (activeJournal) {
       setJournals(journals.map(j => j.id === activeJournal.id ? newJ : j));
@@ -295,11 +306,16 @@ export default function IbadahTracker() {
     showToast("Jurnal telah disematkan. Klik Simpan Perubahan!");
   };
 
+  // PERBAIKAN POIN 1: Ekspor Laporan Dinamis & Tanpa Tombol Mengganggu
   const exportChart = async () => {
     if (chartRef.current) {
-      const canvas = await html2canvas(chartRef.current, { backgroundColor: '#ffffff' });
+      const canvas = await html2canvas(chartRef.current, { backgroundColor: '#ffffff', scale: 2 });
       const link = document.createElement('a');
-      link.download = `Tafkir-Stats-${MONTH_NAMES[currentDate.getMonth()]}.jpg`;
+      
+      const firstName = user.displayName?.split(' ')[0] || 'User';
+      const yearStr = currentDate.getFullYear().toString().slice(-2);
+      
+      link.download = `${firstName}-Tafkir-Stats-${MONTH_NAMES[currentDate.getMonth()]}-${yearStr}-Ibadahku.jpg`;
       link.href = canvas.toDataURL('image/jpeg');
       link.click();
     }
@@ -389,8 +405,9 @@ export default function IbadahTracker() {
     const donePercent = totalFilled ? Math.round((totalDone / totalFilled) * 100) : 0;
 
     let sortedFreq = activities.map(a => ({ name: a.name, ...actData[a.id] })).filter(a => (a.done + a.missed) > 0);
-    let mostFreq = sortedFreq.length ? [...sortedFreq].sort((a,b) => b.done - a.done)[0] : null;
-    let leastFreq = sortedFreq.length ? [...sortedFreq].sort((a,b) => b.missed - a.missed)[0] : null;
+    // PERBAIKAN POIN 4: Mengambil 3 Teratas Konsisten & Sering Terlewat
+    let top3Freq = [...sortedFreq].sort((a,b) => b.done - a.done).slice(0, 3);
+    let top3Missed = [...sortedFreq].sort((a,b) => b.missed - a.missed).slice(0, 3);
 
     let sortedDiscip = activities.map(a => {
        const stat = actData[a.id];
@@ -405,7 +422,7 @@ export default function IbadahTracker() {
     let top3OnTime = [...sortedDiscip].sort((a,b) => b.onTimePct - a.onTimePct).slice(0, 3);
     let top3Late = [...sortedDiscip].sort((a,b) => b.latePct - a.latePct).slice(0, 3);
 
-    return { totalDone, totalMissed, donePercent, weeklyStats, mostFreq, leastFreq, top3OnTime, top3Late };
+    return { totalDone, totalMissed, donePercent, weeklyStats, top3Freq, top3Missed, top3OnTime, top3Late };
   };
 
   const stats = calcStats();
@@ -572,9 +589,19 @@ export default function IbadahTracker() {
                 <thead className="bg-slate-100 border-b border-slate-200">
                   <tr>
                     <th className="text-left text-slate-700 font-bold p-4 sticky left-0 bg-slate-100 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[240px]">Opsi & Aktivitas</th>
-                    {daysInMonth.map(d => (
-                      <th key={d.toISOString()} className="p-3 text-center font-semibold text-slate-600 min-w-[40px]">{d.getDate()}</th>
-                    ))}
+                    {daysInMonth.map(d => {
+                      const isActuallyToday = getLocalDateStr(d) === getLocalDateStr(new Date());
+                      return (
+                         <th key={d.toISOString()} className={`p-3 text-center font-semibold min-w-[40px] transition-colors ${isActuallyToday ? 'bg-orange-100 text-orange-700 border-b-2 border-orange-500' : 'text-slate-600'}`}>
+                            {isActuallyToday ? (
+                               <div className="flex flex-col items-center">
+                                  <span className="text-[9px] uppercase tracking-widest mb-0.5 font-black">Hari Ini</span>
+                                  <span className="text-base">{d.getDate()}</span>
+                               </div>
+                            ) : d.getDate()}
+                         </th>
+                      )
+                    })}
                   </tr>
                 </thead>
                 <tbody>
@@ -600,10 +627,11 @@ export default function IbadahTracker() {
                       </td>
 
                       {daysInMonth.map(d => {
+                        const isActuallyToday = getLocalDateStr(d) === getLocalDateStr(new Date());
                         const key = `${getLocalDateStr(d)}-${act.id}`;
                         const rec = records[key];
                         return (
-                          <td key={key} className="p-2 text-center relative group cursor-pointer border-r border-slate-100/50" onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
+                          <td key={key} className={`p-2 text-center relative group cursor-pointer border-r border-slate-100/50 ${isActuallyToday ? 'bg-orange-50/40' : ''}`} onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
                             {rec?.status === 'done' ? (
                                <div className="w-7 h-7 mx-auto bg-green-100 rounded flex items-center justify-center border border-green-200"><Check className="text-green-600" size={16} /></div>
                             ) : rec?.status === 'missed' ? (
@@ -615,7 +643,7 @@ export default function IbadahTracker() {
                             {rec && (
                               <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 bg-slate-900 text-white text-xs p-3 rounded-lg shadow-xl w-max z-30 pointer-events-none">
                                 <p className="font-semibold border-b border-slate-700 pb-1 mb-1">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
-                                <p className="text-slate-300">Waktu Isi: {new Date(rec.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                                <p className="text-slate-300">Waktu Isi: {new Date(rec.timestamp).toLocaleString('id-ID', {day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit'})}</p>
                                 <p className="mt-1">
                                   Status: {(() => {
                                      const [h, m] = act.time.split(':').map(Number);
@@ -677,11 +705,15 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          <div ref={chartRef} className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-8 relative">
+          <div ref={chartRef} className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 sm:p-8 relative overflow-hidden">
             
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
-               <h2 className="text-xl font-bold text-slate-800 border-l-4 border-orange-500 pl-4">Analisa & Grafik Progres</h2>
-               <button onClick={exportChart} className="flex items-center gap-2 bg-orange-50 hover:bg-orange-100 text-orange-600 px-4 py-2 rounded-xl text-sm font-bold border border-orange-200 transition-colors w-full sm:w-auto justify-center">
+               <div>
+                   <h2 className="text-xl font-bold text-slate-800 border-l-4 border-orange-500 pl-4">Analisa & Grafik Progres</h2>
+                   <p className="text-sm text-slate-500 mt-2 pl-4 font-medium">Laporan Aktivitas: <span className="font-bold text-slate-700">{user.displayName}</span></p>
+               </div>
+               {/* Atribut data-html2canvas-ignore="true" akan menyembunyikan tombol saat diekspor */}
+               <button data-html2canvas-ignore="true" onClick={exportChart} className="flex items-center gap-2 bg-orange-50 hover:bg-orange-100 text-orange-600 px-4 py-2 rounded-xl text-sm font-bold border border-orange-200 transition-colors w-full sm:w-auto justify-center">
                  <Download size={16} /> Ekspor Laporan
                </button>
             </div>
@@ -765,16 +797,30 @@ export default function IbadahTracker() {
                      </div>
                   </div>
                   
+                  {/* PERBAIKAN POIN 4: Top 3 Konsisten & Terlewat */}
                   <div className="pt-4 border-t border-slate-200 space-y-3">
-                     <div className="bg-white p-3 rounded-xl border border-green-100 shadow-sm">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><Award size={12} className="text-green-500"/> Paling Konsisten</p>
-                        <p className="text-sm font-bold text-slate-800">{stats.mostFreq ? stats.mostFreq.name : '-'}</p>
-                        <p className="text-xs text-green-600">{stats.mostFreq ? `${stats.mostFreq.done}x Selesai` : 'Belum ada data'}</p>
+                     <div className="bg-white p-4 rounded-xl border border-green-100 shadow-sm">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-3 flex items-center gap-1"><Award size={12} className="text-green-500"/> 3 Paling Konsisten</p>
+                        <div className="space-y-2">
+                           {stats.top3Freq.length ? stats.top3Freq.map((item, i) => (
+                              <div key={i} className="flex justify-between items-center text-sm">
+                                 <span className="font-bold text-slate-700">{i+1}. {item.name}</span>
+                                 <span className="font-black text-green-600">{item.done}x</span>
+                              </div>
+                           )) : <p className="text-xs text-slate-400 italic">Belum ada data.</p>}
+                        </div>
                      </div>
-                     <div className="bg-white p-3 rounded-xl border border-red-100 shadow-sm">
-                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><AlertOctagon size={12} className="text-red-500"/> Sering Terlewat</p>
-                        <p className="text-sm font-bold text-slate-800">{stats.leastFreq ? stats.leastFreq.name : '-'}</p>
-                        <p className="text-xs text-red-500">{stats.leastFreq ? `${stats.leastFreq.missed}x Terlewat` : 'Belum ada data'}</p>
+                     
+                     <div className="bg-white p-4 rounded-xl border border-red-100 shadow-sm">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-3 flex items-center gap-1"><AlertOctagon size={12} className="text-red-500"/> 3 Sering Terlewat</p>
+                        <div className="space-y-2">
+                           {stats.top3Missed.length ? stats.top3Missed.map((item, i) => (
+                              <div key={i} className="flex justify-between items-center text-sm">
+                                 <span className="font-bold text-slate-700">{i+1}. {item.name}</span>
+                                 <span className="font-black text-red-500">{item.missed}x</span>
+                              </div>
+                           )) : <p className="text-xs text-slate-400 italic">Belum ada data.</p>}
+                        </div>
                      </div>
                   </div>
                </div>
