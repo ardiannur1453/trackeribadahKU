@@ -4,7 +4,7 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signO
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save } from 'lucide-react';
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap } from 'lucide-react';
 
 // --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
@@ -39,9 +39,10 @@ export default function IbadahTracker() {
   const [user, setUser] = useState<any>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   
-  // Kontrol Sinkronisasi & Loading Modal
+  // Kontrol Sinkronisasi & Caching Kilat
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'loading' | 'success'>('loading');
+  const [isFastLoaded, setIsFastLoaded] = useState(false);
   
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -56,12 +57,12 @@ export default function IbadahTracker() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [journalInput, setJournalInput] = useState({ title: '', content: '' });
   
-  // Kontrol Hapus Data
   const [clearScope, setClearScope] = useState<'today' | '2days'>('today');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   
   const chartRef = useRef<HTMLDivElement>(null);
 
+  // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -70,12 +71,35 @@ export default function IbadahTracker() {
     return () => unsubscribe();
   }, []);
 
-  // PERBAIKAN FITUR: Pop-up Loading Sinkronisasi Data
+  // FITUR PENGAMAN 1: Mencegah pengguna tidak sengaja menutup tab browser
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = ''; // Memicu dialog konfirmasi bawaan browser
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // Caching & Sinkronisasi Latar Belakang
   useEffect(() => {
     if (user) {
-      setShowSyncModal(true);
-      setSyncStatus('loading');
+      const cacheKey = `tafkir_cache_${user.uid}`;
+      const cachedData = localStorage.getItem(cacheKey);
       
+      if (cachedData) {
+         try {
+            const parsed = JSON.parse(cachedData);
+            if (parsed.records) setRecords(parsed.records);
+            if (parsed.journals) setJournals(parsed.journals);
+            setIsFastLoaded(true); 
+         } catch (e) {
+            console.error("Gagal membaca cache:", e);
+         }
+      }
+
       const fetchData = async () => {
         try {
           const docSnap = await getDoc(doc(db, 'users', user.uid));
@@ -83,20 +107,29 @@ export default function IbadahTracker() {
             const data = docSnap.data();
             if (data.records) setRecords(data.records);
             if (data.journals) setJournals(data.journals);
+            localStorage.setItem(cacheKey, JSON.stringify(data));
           }
         } catch (error) {
-          console.error(error);
-          showToast("Terjadi kesalahan saat mengunduh data.");
+          console.error("Gagal menarik data server:", error);
         } finally {
-          // Memberi jeda visual 500ms agar transisinya terasa mulus
-          setTimeout(() => {
-             setSyncStatus('success');
-          }, 500);
+          if (!cachedData) {
+             setShowSyncModal(true);
+             setTimeout(() => setSyncStatus('success'), 500);
+          }
         }
       };
       fetchData();
     }
   }, [user]);
+
+  // FITUR PENGAMAN 2: Intersepsi saat Logout
+  const handleLogout = () => {
+    if (hasUnsavedChanges) {
+      const confirmLeave = window.confirm("PERINGATAN: Ada perubahan yang belum disimpan ke server! \n\nData Anda mungkin hilang jika pindah perangkat. Yakin ingin keluar sekarang?");
+      if (!confirmLeave) return; // Batalkan proses logout jika klik Cancel
+    }
+    signOut(auth);
+  };
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -148,8 +181,6 @@ export default function IbadahTracker() {
   };
 
   const handleRecord = (day: Date, actId: number, actTime: string, currentStatus: string | undefined) => {
-    if (showSyncModal) return; // Kunci input jika modal masih tampil
-
     const now = new Date();
     const [hours, minutes] = actTime.split(':').map(Number);
     const targetTime = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, minutes);
@@ -165,20 +196,17 @@ export default function IbadahTracker() {
     if (currentStatus === 'done') newStatus = 'missed';
     if (currentStatus === 'missed') newStatus = 'none';
 
+    let newRecs = { ...records };
     if (newStatus === 'none') {
-      const newRecs = { ...records };
       delete newRecs[key];
-      setRecords(newRecs);
     } else {
-      setRecords({
-        ...records,
-        [key]: {
-          status: newStatus,
-          timestamp: now.getTime(),
-          actualDay: now.toISOString().split('T')[0]
-        }
-      });
+      newRecs[key] = {
+        status: newStatus,
+        timestamp: now.getTime(),
+        actualDay: now.toISOString().split('T')[0]
+      };
     }
+    setRecords(newRecs);
     setHasUnsavedChanges(true); 
   };
 
@@ -186,7 +214,10 @@ export default function IbadahTracker() {
     if (!user) return;
     setIsSaving(true);
     try {
-      await setDoc(doc(db, 'users', user.uid), { records, journals }, { merge: true });
+      const payload = { records, journals };
+      await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
+      localStorage.setItem(`tafkir_cache_${user.uid}`, JSON.stringify(payload));
+      
       setHasUnsavedChanges(false);
       showToast("Data berhasil diamankan ke brankas server!");
     } catch (error) {
@@ -358,7 +389,7 @@ export default function IbadahTracker() {
     <div className="fixed inset-0 w-full h-full overflow-y-auto bg-slate-50 text-slate-800 font-sans">
       <div className="min-h-full p-4 md:p-8 relative">
         
-        {/* --- MODAL LOADING SINKRONISASI DATA --- */}
+        {/* Modal Sinkronisasi Manual Pertama Kali */}
         {showSyncModal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
              <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl relative text-center">
@@ -415,7 +446,7 @@ export default function IbadahTracker() {
           </div>
         )}
 
-        {/* Toast */}
+        {/* Toast Notification */}
         {toast && (
           <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 border-l-4 border-orange-500 animate-bounce">
             <AlertCircle size={20} className="text-orange-500" /> {toast}
@@ -439,9 +470,11 @@ export default function IbadahTracker() {
             <div className="flex items-center gap-4 bg-slate-100 px-4 py-2 rounded-xl border border-slate-200">
                <div className="text-right hidden sm:block">
                  <div className="text-sm font-semibold text-slate-800">{user.displayName}</div>
-                 <div className="text-xs text-green-600 font-medium">Mode Koneksi Manual</div>
+                 <div className="text-xs text-green-600 font-medium flex items-center gap-1 justify-end">
+                    {isFastLoaded && <Zap size={12}/>} Mode Kendali Manual
+                 </div>
                </div>
-               <button onClick={() => signOut(auth)} className="ml-2 bg-red-100 text-red-600 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
+               <button onClick={handleLogout} className="ml-2 bg-red-100 text-red-600 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
                  <LogOut size={16}/> Keluar
                </button>
             </div>
@@ -529,7 +562,7 @@ export default function IbadahTracker() {
                   {isSaving ? <RefreshCw className="animate-spin" size={20} /> : <Save size={20} />}
                   {isSaving ? 'Menyimpan Data...' : 'Simpan Perubahan ke Server'}
                </button>
-               {hasUnsavedChanges && <p className="text-xs text-orange-600 mt-2 font-medium">Terdapat perubahan yang belum disimpan ke brankas.</p>}
+               {hasUnsavedChanges && <p className="text-xs text-orange-600 mt-2 font-medium">PENTING: Terdapat perubahan yang belum disimpan ke brankas.</p>}
             </div>
             
             {/* Menu Hapus */}
@@ -575,7 +608,7 @@ export default function IbadahTracker() {
               <input type="text" placeholder="Judul Jurnal / Catatan..." value={journalInput.title} onChange={e => setJournalInput({...journalInput, title: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all font-medium" />
               <textarea placeholder="Tuliskan evaluasi, syukur, atau doa Anda hari ini..." value={journalInput.content} onChange={e => setJournalInput({...journalInput, content: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 h-40 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all resize-none mb-4" />
               <div className="flex justify-end">
-                 <button onClick={saveJournal} className="bg-slate-800 text-white px-6 py-2.5 rounded-xl hover:bg-slate-900 font-bold shadow-md transition-all flex items-center gap-2"><Check size={18}/> Isi Jurnal (Jangan Lupa Klik Simpan)</button>
+                 <button onClick={saveJournal} className="bg-slate-800 text-white px-6 py-2.5 rounded-xl hover:bg-slate-900 font-bold shadow-md transition-all flex items-center gap-2"><Check size={18}/> Isi Jurnal (Lalu Klik Simpan di Atas)</button>
               </div>
             </div>
           </div>
