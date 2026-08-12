@@ -61,7 +61,6 @@ export default function IbadahTracker() {
   
   const chartRef = useRef<HTMLDivElement>(null);
 
-  // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -70,7 +69,6 @@ export default function IbadahTracker() {
     return () => unsubscribe();
   }, []);
 
-  // Window Unload Protection
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (hasUnsavedChanges) {
@@ -82,17 +80,15 @@ export default function IbadahTracker() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // Fitur 3: AUTO-SAVE DENGAN IDLE TIMER (7 Menit)
   useEffect(() => {
     if (hasUnsavedChanges && user) {
       const timer = setTimeout(() => {
-         saveToServer(true); // Memanggil saveToServer dengan parameter true (Auto-save)
-      }, 7 * 60 * 1000); // 7 Menit Idle
+         saveToServer(true);
+      }, 7 * 60 * 1000); 
       return () => clearTimeout(timer);
     }
   }, [hasUnsavedChanges, records, journals, activities]);
 
-  // Data Fetching & Real-time Listener
   useEffect(() => {
     if (user) {
       const cacheKey = `tafkir_cache_${user.uid}`;
@@ -315,26 +311,67 @@ export default function IbadahTracker() {
     });
   }, [daysInMonth, records, activities]);
 
-  // Kalkulasi Statistik Lengkap (Kuantitas, Disiplin, Top/Bottom)
+  // Kalkulasi Statistik Lengkap dengan LOGIKA DISIPLIN WAKTU BARU
   const calcStats = () => {
-    const today = new Date();
-    
-    const actData: Record<number, { done: number, missed: number, onTime: number, totalValid: number }> = {};
-    activities.forEach(a => actData[a.id] = { done: 0, missed: 0, onTime: 0, totalValid: 0 });
+    const actData: Record<number, { done: number, missed: number, onTime: number, late: number }> = {};
+    activities.forEach(a => actData[a.id] = { done: 0, missed: 0, onTime: 0, late: 0 });
 
     const weeklyStats = [
       { done: 0, expected: 0 }, { done: 0, expected: 0 }, 
       { done: 0, expected: 0 }, { done: 0, expected: 0 }, { done: 0, expected: 0 }
     ];
 
+    let totalDone = 0;
+    let totalMissed = 0;
+
+    Object.entries(records).forEach(([key, val]: [string, any]) => {
+      const [y, m, d, actIdStr] = key.split('-');
+      const actId = parseInt(actIdStr);
+      const recDate = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
+
+      if (recDate.getMonth() === currentDate.getMonth() && recDate.getFullYear() === currentDate.getFullYear()) {
+         if (val.status === 'done') {
+            totalDone++;
+            if(actData[actId]) actData[actId].done++;
+            
+            // Evaluasi Disiplin Waktu (Hanya untuk yang "done")
+            const activity = activities.find(a => a.id === actId);
+            if (activity) {
+               const recordDateStr = `${y}-${m}-${d}`;
+               if (val.actualDay === recordDateStr) {
+                  const [h, min] = activity.time.split(':').map(Number);
+                  const targetTime = new Date(parseInt(y), parseInt(m)-1, parseInt(d), h, min).getTime();
+                  // Hitung selisih dalam menit
+                  const timeDiffMins = (val.timestamp - targetTime) / 60000;
+                  
+                  // H+1 Menit s/d H+30 Menit = TEPAT WAKTU
+                  if (timeDiffMins <= 30) { 
+                     actData[actId].onTime++;
+                  } else {
+                     // > 30 Menit = RAPELAN
+                     actData[actId].late++;
+                  }
+               } else {
+                  // Beda Hari = RAPELAN
+                  actData[actId].late++;
+               }
+            }
+         }
+         if (val.status === 'missed') {
+            totalMissed++;
+            if(actData[actId]) actData[actId].missed++;
+         }
+      }
+    });
+
+    // Menghitung ekspektasi mingguan (tidak berubah)
+    const today = new Date();
     daysInMonth.forEach(d => {
        const weekIdx = Math.floor((d.getDate() - 1) / 7);
        const dateStr = d.toISOString().split('T')[0];
-       
        activities.forEach(a => {
           const [h, m] = a.time.split(':').map(Number);
           const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
-          
           if (today.getTime() >= targetTime.getTime()) {
              weeklyStats[weekIdx].expected++;
           }
@@ -344,60 +381,30 @@ export default function IbadahTracker() {
        });
     });
 
-    let totalDone = 0;
-    let totalMissed = 0;
-
-    Object.entries(records).forEach(([key, val]: [string, any]) => {
-      const [y, m, d, actIdStr] = key.split('-');
-      const recDate = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
-      const actId = parseInt(actIdStr);
-      
-      if (recDate.getMonth() === currentDate.getMonth() && recDate.getFullYear() === currentDate.getFullYear()) {
-         if (val.status === 'done') {
-            totalDone++;
-            if(actData[actId]) actData[actId].done++;
-         }
-         if (val.status === 'missed') {
-            totalMissed++;
-            if(actData[actId]) actData[actId].missed++;
-         }
-      }
-
-      if (val.status === 'done' || val.status === 'missed') {
-        const recordDateStr = `${y}-${m}-${d}`;
-        const activity = activities.find(a => a.id === actId);
-        
-        if (activity) {
-          if (actData[actId]) actData[actId].totalValid++;
-          if (val.actualDay === recordDateStr) {
-            const [h, min] = activity.time.split(':').map(Number);
-            const targetTime = new Date(parseInt(y), parseInt(m)-1, parseInt(d), h, min).getTime();
-            const timeDiffHours = (val.timestamp - targetTime) / (1000 * 60 * 60);
-            if (timeDiffHours <= 1 && timeDiffHours >= -2) { 
-              if (actData[actId]) actData[actId].onTime++;
-            }
-          }
-        }
-      }
-    });
-
     const totalFilled = totalDone + totalMissed;
     const donePercent = totalFilled ? Math.round((totalDone / totalFilled) * 100) : 0;
 
-    // Kalkulasi Top & Bottom (Kuantitas & Disiplin)
+    // Kalkulasi Klasemen Kuantitas
     let sortedFreq = activities.map(a => ({ name: a.name, ...actData[a.id] })).filter(a => (a.done + a.missed) > 0);
     let mostFreq = sortedFreq.length ? [...sortedFreq].sort((a,b) => b.done - a.done)[0] : null;
     let leastFreq = sortedFreq.length ? [...sortedFreq].sort((a,b) => b.missed - a.missed)[0] : null;
 
+    // Kalkulasi Klasemen Disiplin Waktu (Top 3 & Bottom 3)
     let sortedDiscip = activities.map(a => {
        const stat = actData[a.id];
-       return { name: a.name, valid: stat.totalValid, pct: stat.totalValid ? (stat.onTime/stat.totalValid)*100 : 0 };
-    }).filter(a => a.valid > 0);
+       return { 
+           name: a.name, 
+           done: stat.done,
+           onTimePct: stat.done > 0 ? (stat.onTime / stat.done) * 100 : 0, 
+           latePct: stat.done > 0 ? (stat.late / stat.done) * 100 : 0 
+       };
+    }).filter(a => a.done > 0);
     
-    let mostDiscip = sortedDiscip.length ? [...sortedDiscip].sort((a,b) => b.pct - a.pct)[0] : null;
-    let leastDiscip = sortedDiscip.length ? [...sortedDiscip].sort((a,b) => a.pct - b.pct)[0] : null;
+    // Urutkan dan ambil 3 teratas
+    let top3OnTime = [...sortedDiscip].sort((a,b) => b.onTimePct - a.onTimePct).slice(0, 3);
+    let top3Late = [...sortedDiscip].sort((a,b) => b.latePct - a.latePct).slice(0, 3);
 
-    return { totalDone, totalMissed, donePercent, actData, weeklyStats, mostFreq, leastFreq, mostDiscip, leastDiscip };
+    return { totalDone, totalMissed, donePercent, weeklyStats, mostFreq, leastFreq, top3OnTime, top3Late };
   };
 
   const stats = calcStats();
@@ -430,13 +437,13 @@ export default function IbadahTracker() {
     <div className="fixed inset-0 w-full h-full overflow-y-auto bg-slate-50 text-slate-800 font-sans">
       <div className="min-h-full p-4 md:p-8 relative">
         
-        {/* FITUR 2: TOMBOL SIMPAN MELAYANG (FLOATING ACTION BUTTON) */}
+        {/* TOMBOL SIMPAN MELAYANG (FLOATING ACTION BUTTON) */}
         {hasUnsavedChanges && (
-           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] w-full px-4 sm:w-auto sm:px-0">
+           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] w-full px-4 sm:w-auto sm:px-0 pointer-events-none">
               <button 
                   onClick={() => saveToServer(false)}
                   disabled={isSaving}
-                  className="w-full sm:w-auto bg-orange-600 text-white px-8 py-3.5 rounded-full font-bold flex items-center justify-center gap-3 shadow-[0_8px_30px_rgba(249,115,22,0.5)] hover:bg-orange-700 hover:-translate-y-1 transition-all animate-bounce"
+                  className="w-full pointer-events-auto sm:w-auto bg-orange-600 text-white px-8 py-3.5 rounded-full font-bold flex items-center justify-center gap-3 shadow-[0_8px_30px_rgba(249,115,22,0.5)] hover:bg-orange-700 hover:-translate-y-1 transition-all animate-bounce"
                >
                   {isSaving ? <RefreshCw className="animate-spin" size={20} /> : <Save size={20} />}
                   {isSaving ? 'Menyimpan ke Cloud...' : 'Simpan Perubahan Anda'}
@@ -548,7 +555,7 @@ export default function IbadahTracker() {
           {/* Tabel Aktivitas */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden relative">
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
-               {/* FITUR 4: Menu Tambah Aktif di Atas (Responsive) */}
+               {/* Menu Tambah Aktif di Atas */}
                <div className="flex items-center justify-between w-full md:w-auto gap-4">
                   <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                      <span className="w-3 h-3 rounded-full bg-orange-500"></span> Tabel Pelaporan
@@ -617,9 +624,19 @@ export default function IbadahTracker() {
                                 <p className="font-semibold border-b border-slate-700 pb-1 mb-1">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
                                 <p className="text-slate-300">Waktu Isi: {new Date(rec.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
                                 <p className="mt-1">
-                                  Status: {rec.actualDay === d.toISOString().split('T')[0] 
-                                    ? <span className="text-green-400 font-bold tracking-wide">TEPAT HARI</span> 
-                                    : <span className="text-red-400 font-bold tracking-wide">RAPELAN</span>}
+                                  Status: {(() => {
+                                     // Evaluasi TEPAT WAKTU VS RAPELAN di Jendela Info (Tooltip)
+                                     const [h, m] = act.time.split(':').map(Number);
+                                     const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m).getTime();
+                                     const diffMins = (rec.timestamp - targetTime) / 60000;
+                                     const isOnTime = rec.actualDay === d.toISOString().split('T')[0] && diffMins <= 30;
+                                     
+                                     return isOnTime ? (
+                                        <span className="text-green-400 font-bold tracking-wide">TEPAT WAKTU</span>
+                                     ) : (
+                                        <span className="text-red-400 font-bold tracking-wide">RAPELAN</span>
+                                     );
+                                  })()}
                                 </p>
                                 <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45"></div>
                               </div>
@@ -703,7 +720,7 @@ export default function IbadahTracker() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-               {/* FITUR 5: Progress Mingguan */}
+               
                <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
                   <h3 className="text-slate-700 font-bold mb-6 text-center flex items-center justify-center gap-2">
                      <BarChart2 size={18} className="text-blue-500"/> Progress Mingguan
@@ -732,7 +749,6 @@ export default function IbadahTracker() {
                   </div>
                </div>
 
-               {/* FITUR 6 & 7: Kuantitas Bulanan & Paling Sering / Terlewat */}
                <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200 flex flex-col justify-between">
                   <div>
                      <h3 className="text-slate-700 font-bold mb-6 text-center">Kuantitas Bulanan</h3>
@@ -772,30 +788,39 @@ export default function IbadahTracker() {
                   </div>
                </div>
 
-               {/* FITUR 8: Disiplin Waktu Rangkuman */}
+               {/* KLASEMEN DISIPLIN WAKTU (TOP 3 & BOTTOM 3) */}
                <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
-                  <h3 className="text-slate-700 font-bold mb-4 text-center">Disiplin Waktu (Tanpa Rapel)</h3>
-                  <p className="text-xs text-slate-500 text-center mb-6">Analisa kecepatan laporan &lt;1 jam setelah waktu aktivitas.</p>
+                  <h3 className="text-slate-700 font-bold mb-4 text-center">Disiplin Waktu Pelaporan</h3>
+                  <p className="text-[10px] text-slate-500 text-center mb-6">Tepat waktu: Maksimal 30 menit dari target pelaksanaan.</p>
                   
                   <div className="space-y-4">
-                     <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 relative z-10">⏱️ Kedisiplinan Terbaik</p>
-                        <p className="text-base font-bold text-slate-800 relative z-10">{stats.mostDiscip ? stats.mostDiscip.name : '-'}</p>
-                        <p className="text-xl font-black text-blue-600 mt-1 relative z-10">{stats.mostDiscip ? `${Math.round(stats.mostDiscip.pct)}%` : '0%'}</p>
+                     <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-3 flex items-center gap-1">⏱️ 3 Teratas (Tepat Waktu)</p>
+                        <div className="space-y-2">
+                           {stats.top3OnTime.length ? stats.top3OnTime.map((item, i) => (
+                              <div key={i} className="flex justify-between items-center text-sm">
+                                 <span className="font-bold text-slate-700">{i+1}. {item.name}</span>
+                                 <span className="font-black text-blue-600">{Math.round(item.onTimePct)}%</span>
+                              </div>
+                           )) : <p className="text-xs text-slate-400 italic">Belum ada data valid.</p>}
+                        </div>
                      </div>
 
-                     <div className="bg-white p-4 rounded-xl border border-orange-100 shadow-sm relative overflow-hidden">
-                        <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 relative z-10">⚠️ Perlu Ditingkatkan</p>
-                        <p className="text-base font-bold text-slate-800 relative z-10">{stats.leastDiscip ? stats.leastDiscip.name : '-'}</p>
-                        <p className="text-xl font-black text-orange-500 mt-1 relative z-10">{stats.leastDiscip ? `${Math.round(stats.leastDiscip.pct)}%` : '0%'}</p>
+                     <div className="bg-white p-4 rounded-xl border border-orange-100 shadow-sm">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-3 flex items-center gap-1">⚠️ 3 Terbawah (Sering Rapelan)</p>
+                        <div className="space-y-2">
+                           {stats.top3Late.length ? stats.top3Late.map((item, i) => (
+                              <div key={i} className="flex justify-between items-center text-sm">
+                                 <span className="font-bold text-slate-700">{i+1}. {item.name}</span>
+                                 <span className="font-black text-orange-500">{Math.round(item.latePct)}%</span>
+                              </div>
+                           )) : <p className="text-xs text-slate-400 italic">Belum ada data valid.</p>}
+                        </div>
                      </div>
                   </div>
                </div>
             </div>
 
-            {/* FITUR 9: Update Footer Hak Cipta */}
             <div className="mt-12 pt-6 border-t border-slate-100 text-center leading-relaxed">
                <p className="text-slate-500 text-xs font-semibold">© 2026 TafkirCorp. Seluruh hak cipta milik ALLAAH SWT.</p>
                <p className="text-slate-400 text-[10px] mt-1">TafkirCorp App TrackerIbadahKU v1.0.0</p>
