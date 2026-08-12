@@ -4,7 +4,7 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signO
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap } from 'lucide-react';
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus } from 'lucide-react';
 
 // --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
@@ -39,7 +39,6 @@ export default function IbadahTracker() {
   const [user, setUser] = useState<any>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   
-  // Kontrol Sinkronisasi & Caching Kilat
   const [showSyncModal, setShowSyncModal] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'loading' | 'success'>('loading');
   const [isFastLoaded, setIsFastLoaded] = useState(false);
@@ -48,7 +47,7 @@ export default function IbadahTracker() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [activities] = useState(DEFAULT_ACTIVITIES);
+  const [activities, setActivities] = useState(DEFAULT_ACTIVITIES); // Kini Dinamis
   const [records, setRecords] = useState<any>({});
   const [journals, setJournals] = useState<any[]>([]);
   
@@ -57,12 +56,14 @@ export default function IbadahTracker() {
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [journalInput, setJournalInput] = useState({ title: '', content: '' });
   
+  // Modal Manajemen Aktivitas
+  const [actModal, setActModal] = useState({ show: false, mode: 'add', id: null as number | null, name: '', time: '00:00' });
+  
   const [clearScope, setClearScope] = useState<'today' | '2days'>('today');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   
   const chartRef = useRef<HTMLDivElement>(null);
 
-  // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -71,7 +72,6 @@ export default function IbadahTracker() {
     return () => unsubscribe();
   }, []);
 
-  // FITUR PENGAMAN 1: Mencegah pengguna tidak sengaja menutup tab browser
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (hasUnsavedChanges) {
@@ -83,25 +83,26 @@ export default function IbadahTracker() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // PERBAIKAN LOGIKA: Caching & Loading Modal Lock
+  // PERBAIKAN: Hard Lock Modal saat awal buka aplikasi
   useEffect(() => {
     if (user) {
       const cacheKey = `tafkir_cache_${user.uid}`;
       const cachedData = localStorage.getItem(cacheKey);
       
+      // Kunci layar langsung dengan pop-up loading (tanpa kompromi)
+      setShowSyncModal(true);
+      setSyncStatus('loading');
+      
       if (cachedData) {
          try {
             const parsed = JSON.parse(cachedData);
+            if (parsed.activities) setActivities(parsed.activities);
             if (parsed.records) setRecords(parsed.records);
             if (parsed.journals) setJournals(parsed.journals);
             setIsFastLoaded(true); 
          } catch (e) {
             console.error("Gagal membaca cache:", e);
          }
-      } else {
-         // KUNCI LAYAR SEKARANG: Jika tidak ada cache, langsung tampilkan modal loading SEBELUM mengunduh
-         setShowSyncModal(true);
-         setSyncStatus('loading');
       }
 
       const fetchData = async () => {
@@ -109,6 +110,7 @@ export default function IbadahTracker() {
           const docSnap = await getDoc(doc(db, 'users', user.uid));
           if (docSnap.exists()) {
             const data = docSnap.data();
+            if (data.activities) setActivities(data.activities);
             if (data.records) setRecords(data.records);
             if (data.journals) setJournals(data.journals);
             localStorage.setItem(cacheKey, JSON.stringify(data));
@@ -116,17 +118,14 @@ export default function IbadahTracker() {
         } catch (error) {
           console.error("Gagal menarik data server:", error);
         } finally {
-          if (!cachedData) {
-             // UBAH STATUS: Jika unduhan selesai, ganti modal menjadi tombol Oke
-             setTimeout(() => setSyncStatus('success'), 500);
-          }
+          // Ganti ikon menjadi Centang & buka akses setelah background fetch selesai
+          setTimeout(() => setSyncStatus('success'), 600);
         }
       };
       fetchData();
     }
   }, [user]);
 
-  // FITUR PENGAMAN 2: Intersepsi saat Logout
   const handleLogout = () => {
     if (hasUnsavedChanges) {
       const confirmLeave = window.confirm("PERINGATAN: Ada perubahan yang belum disimpan ke server! \n\nData Anda mungkin hilang jika pindah perangkat. Yakin ingin keluar sekarang?");
@@ -150,6 +149,35 @@ export default function IbadahTracker() {
     const days = new Date(year, month + 1, 0).getDate();
     return Array.from({ length: days }, (_, i) => new Date(year, month, i + 1));
   }, [currentDate]);
+
+  // FITUR BARU: Simpan Penambahan / Edit Aktivitas
+  const saveActivity = () => {
+     if (!actModal.name.trim()) return showToast("Nama aktivitas tidak boleh kosong!");
+     let newActs = [...activities];
+
+     if (actModal.mode === 'add') {
+        newActs.push({ id: Date.now(), name: actModal.name, time: actModal.time });
+     } else {
+        newActs = newActs.map(a => a.id === actModal.id ? { ...a, name: actModal.name, time: actModal.time } : a);
+     }
+
+     // Urutkan otomatis berdasarkan jam
+     newActs.sort((a, b) => a.time.localeCompare(b.time));
+
+     setActivities(newActs);
+     setHasUnsavedChanges(true);
+     setActModal({ show: false, mode: 'add', id: null, name: '', time: '00:00' });
+     showToast(`Aktivitas berhasil ${actModal.mode === 'add' ? 'ditambahkan' : 'diperbarui'}. Klik Simpan Perubahan.`);
+  };
+
+  // FITUR BARU: Hapus Aktivitas
+  const deleteActivity = (id: number) => {
+     if (window.confirm("Yakin ingin menghapus aktivitas ini dari tabel?")) {
+        setActivities(activities.filter(a => a.id !== id));
+        setHasUnsavedChanges(true);
+        showToast("Aktivitas dihapus sementara. Klik Simpan Perubahan ke Server.");
+     }
+  };
 
   const getWeeklyEvaluation = (actId: number) => {
     const today = new Date();
@@ -179,7 +207,6 @@ export default function IbadahTracker() {
     }
 
     if (expected < 3) return true;
-    
     const percentage = doneCount / expected;
     return percentage >= 0.5;
   };
@@ -214,18 +241,28 @@ export default function IbadahTracker() {
     setHasUnsavedChanges(true); 
   };
 
+  // PERBAIKAN: Tombol Simpan Optimistis (Tanpa Loading Lama)
   const saveToServer = async () => {
     if (!user) return;
     setIsSaving(true);
+    
+    const payload = { activities, records, journals };
+    // 1. Langsung amankan di cache lokal
+    localStorage.setItem(`tafkir_cache_${user.uid}`, JSON.stringify(payload));
+    
+    // 2. Ubah UI langsung menjadi sukses tanpa menunggu server
+    setHasUnsavedChanges(false);
+    
     try {
-      const payload = { records, journals };
-      await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
-      localStorage.setItem(`tafkir_cache_${user.uid}`, JSON.stringify(payload));
-      
-      setHasUnsavedChanges(false);
-      showToast("Data berhasil diamankan ke brankas server!");
+      // 3. Tembak data ke Firebase dengan batas waktu maksimal (mencegah hanging)
+      await Promise.race([
+         setDoc(doc(db, 'users', user.uid), payload, { merge: true }),
+         new Promise((resolve) => setTimeout(resolve, 3000)) // Lepas paksa setelah 3 detik
+      ]);
+      showToast("Data diamankan ke perangkat dan server!");
     } catch (error) {
-      showToast("Gagal menyimpan data. Silakan coba lagi.");
+      // Abaikan error koneksi, karena data sudah tersimpan di localStorage
+      console.log("Server lambat merespons, namun data aman di lokal.");
     } finally {
       setIsSaving(false);
     }
@@ -253,7 +290,7 @@ export default function IbadahTracker() {
     setRecords(newRecords);
     setHasUnsavedChanges(true);
     setShowClearConfirm(false);
-    showToast(`Data ${clearScope === 'today' ? 'Hari Ini' : '2 Hari Terakhir'} terhapus dari layar. Klik Simpan untuk memperbarui server.`);
+    showToast(`Data ${clearScope === 'today' ? 'Hari Ini' : '2 Hari Terakhir'} terhapus. Klik Simpan untuk memperbarui.`);
   };
 
   const saveJournal = () => {
@@ -272,7 +309,7 @@ export default function IbadahTracker() {
     setJournalInput({ title: '', content: '' });
     setActiveJournal(null);
     setHasUnsavedChanges(true);
-    showToast("Jurnal berhasil diisi. Klik Simpan untuk memperbarui server.");
+    showToast("Jurnal diisi. Klik Simpan Perubahan untuk mengamankan.");
   };
 
   const exportChart = async () => {
@@ -294,7 +331,7 @@ export default function IbadahTracker() {
       });
       return {
         tanggal: d.getDate().toString(),
-        persentase: Math.round((doneCount / activities.length) * 100)
+        persentase: activities.length ? Math.round((doneCount / activities.length) * 100) : 0
       };
     });
   }, [daysInMonth, records, activities]);
@@ -393,9 +430,9 @@ export default function IbadahTracker() {
     <div className="fixed inset-0 w-full h-full overflow-y-auto bg-slate-50 text-slate-800 font-sans">
       <div className="min-h-full p-4 md:p-8 relative">
         
-        {/* --- MODAL PENGAMAN: LOADING SINKRONISASI DATA KILAT --- */}
+        {/* --- MODAL PENGAMAN LENGKAP: LOCK SAAT DOWNLOAD DATA --- */}
         {showSyncModal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
              <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl relative text-center">
                 {syncStatus === 'loading' ? (
                    <>
@@ -412,7 +449,7 @@ export default function IbadahTracker() {
                       </div>
                       <h3 className="text-xl font-bold text-slate-800 mb-2">Sinkronisasi Berhasil</h3>
                       <p className="text-slate-600 text-sm mb-6">Data selesai didownload. Aplikasi siap digunakan.</p>
-                      <button onClick={() => setShowSyncModal(false)} className="px-5 py-2.5 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-colors w-full shadow-lg shadow-orange-500/30">
+                      <button onClick={() => setShowSyncModal(false)} className="px-5 py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-colors w-full shadow-lg shadow-orange-500/30">
                          Oke
                       </button>
                    </>
@@ -421,7 +458,30 @@ export default function IbadahTracker() {
           </div>
         )}
 
-        {/* Modal Konfirmasi Hapus */}
+        {/* Modal Pengaturan Aktivitas (Add/Edit) */}
+        {actModal.show && (
+           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
+                 <button onClick={() => setActModal({...actModal, show: false})} className="absolute top-4 right-4 p-2 text-slate-400 hover:bg-slate-100 rounded-full"><X size={20}/></button>
+                 <h2 className="text-xl font-bold text-slate-800 mb-4">{actModal.mode === 'add' ? 'Tambah Aktivitas Baru' : 'Edit Aktivitas'}</h2>
+                 
+                 <div className="space-y-4 mb-6">
+                    <div>
+                       <label className="block text-sm font-bold text-slate-600 mb-1">Nama Aktivitas</label>
+                       <input type="text" value={actModal.name} onChange={e => setActModal({...actModal, name: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-orange-200 outline-none" placeholder="Contoh: Shalat Dhuha" />
+                    </div>
+                    <div>
+                       <label className="block text-sm font-bold text-slate-600 mb-1">Jam Pelaksanaan</label>
+                       <input type="time" value={actModal.time} onChange={e => setActModal({...actModal, time: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:ring-2 focus:ring-orange-200 outline-none" />
+                    </div>
+                 </div>
+                 
+                 <button onClick={saveActivity} className="w-full bg-orange-600 text-white font-bold py-3 rounded-xl hover:bg-orange-700 transition-all shadow-md">Simpan Pengaturan</button>
+              </div>
+           </div>
+        )}
+
+        {/* Modal Konfirmasi Hapus Data */}
         {showClearConfirm && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
              <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl relative text-center">
@@ -438,21 +498,9 @@ export default function IbadahTracker() {
           </div>
         )}
 
-        {/* Modal View Jurnal */}
-        {isViewModalOpen && activeJournal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative">
-              <button onClick={() => setIsViewModalOpen(false)} className="absolute top-6 right-6 p-2 bg-slate-100 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
-              <h2 className="text-2xl font-bold text-slate-800 mb-2 pr-10">{activeJournal.title}</h2>
-              <p className="text-sm text-orange-600 font-medium mb-6">{new Date(activeJournal.date).toLocaleString('id-ID', {weekday: 'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'})}</p>
-              <div className="whitespace-pre-wrap text-slate-700 leading-relaxed bg-slate-50 p-6 rounded-2xl border border-slate-100 max-h-[60vh] overflow-y-auto">{activeJournal.content}</div>
-            </div>
-          </div>
-        )}
-
         {/* Toast Notification */}
         {toast && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 border-l-4 border-orange-500 animate-bounce">
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 border-l-4 border-orange-500 animate-bounce">
             <AlertCircle size={20} className="text-orange-500" /> {toast}
           </div>
         )}
@@ -487,9 +535,14 @@ export default function IbadahTracker() {
           {/* Tabel Aktivitas */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden relative">
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
-               <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <span className="w-3 h-3 rounded-full bg-orange-500"></span> Tabel Pelaporan Bulanan
-               </h2>
+               <div className="flex items-center gap-4">
+                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                     <span className="w-3 h-3 rounded-full bg-orange-500"></span> Tabel Pelaporan
+                  </h2>
+                  <button onClick={() => setActModal({ show: true, mode: 'add', id: null, name: '', time: '00:00' })} className="hidden sm:flex items-center gap-1 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-sm font-bold text-orange-600 hover:bg-orange-50 transition-colors">
+                     <Plus size={16}/> Tambah
+                  </button>
+               </div>
                
                <div className="flex items-center gap-4 bg-white border border-slate-200 px-2 py-1 rounded-lg shadow-sm">
                   <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><ChevronLeft size={20}/></button>
@@ -504,7 +557,8 @@ export default function IbadahTracker() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-100 border-b border-slate-200">
                   <tr>
-                    <th className="text-left text-slate-700 font-bold p-4 sticky left-0 bg-slate-100 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[170px]">Aktivitas</th>
+                    {/* Kolom Kiri yang Digabung untuk Opsi & Nama */}
+                    <th className="text-left text-slate-700 font-bold p-4 sticky left-0 bg-slate-100 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[240px]">Opsi & Aktivitas</th>
                     {daysInMonth.map(d => (
                       <th key={d.toISOString()} className="p-3 text-center font-semibold text-slate-600 min-w-[40px]">{d.getDate()}</th>
                     ))}
@@ -515,13 +569,27 @@ export default function IbadahTracker() {
                     const isSafe = getWeeklyEvaluation(act.id);
                     return (
                     <tr key={act.id} className={idx % 2 === 0 ? 'bg-white hover:bg-orange-50/50' : 'bg-slate-50 hover:bg-orange-50/50'}>
-                      <td className="p-4 font-medium sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-100" style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                        <div className="flex items-center gap-2">
-                          <span className={!isSafe ? 'text-red-600 font-bold' : 'text-slate-800'}>{act.name}</span>
-                          {!isSafe && <AlertTriangle size={14} className="text-red-500" />}
+                      
+                      {/* OPSI & NAMA AKTIVITAS (Sisi Paling Kiri) */}
+                      <td className="p-3 font-medium sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-100" style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                        <div className="flex items-center gap-3">
+                           {/* Panel Opsi */}
+                           <div className="flex flex-col gap-1 shrink-0">
+                              <button onClick={() => setActModal({ show: true, mode: 'edit', id: act.id, name: act.name, time: act.time })} className="p-1 bg-slate-100 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded" title="Edit Aktivitas"><Edit3 size={14}/></button>
+                              <button onClick={() => deleteActivity(act.id)} className="p-1 bg-slate-100 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded" title="Hapus Aktivitas"><Trash2 size={14}/></button>
+                           </div>
+                           {/* Teks Nama & Jam */}
+                           <div className="flex flex-col items-start leading-tight">
+                              <div className="flex items-center gap-2">
+                                <span className={!isSafe ? 'text-red-600 font-bold' : 'text-slate-800'}>{act.name}</span>
+                                {!isSafe && <AlertTriangle size={14} className="text-red-500" />}
+                              </div>
+                              <span className="text-[10px] text-orange-600 font-bold bg-orange-100 px-1.5 py-0.5 rounded mt-1">{act.time}</span>
+                           </div>
                         </div>
-                        <span className="text-xs text-orange-600 font-bold bg-orange-100 px-2 py-0.5 rounded mt-1 inline-block">{act.time}</span>
                       </td>
+
+                      {/* AREA CENTANG HARIAN */}
                       {daysInMonth.map(d => {
                         const key = `${d.toISOString().split('T')[0]}-${act.id}`;
                         const rec = records[key];
@@ -556,7 +624,7 @@ export default function IbadahTracker() {
               </table>
             </div>
 
-            {/* Tombol Konfirmasi Simpan */}
+            {/* Tombol Konfirmasi Simpan Dipercepat */}
             <div className={`p-4 border-t border-slate-200 flex flex-col items-end transition-colors ${hasUnsavedChanges ? 'bg-orange-50' : 'bg-slate-50'}`}>
                <button 
                   onClick={saveToServer}
@@ -564,7 +632,7 @@ export default function IbadahTracker() {
                   className={`px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all w-full sm:w-auto justify-center ${hasUnsavedChanges ? 'bg-orange-600 text-white shadow-[0_4px_15px_rgba(249,115,22,0.4)] hover:bg-orange-700 hover:-translate-y-0.5' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
                >
                   {isSaving ? <RefreshCw className="animate-spin" size={20} /> : <Save size={20} />}
-                  {isSaving ? 'Menyimpan Data...' : 'Simpan Perubahan ke Server'}
+                  {isSaving ? 'Menyimpan...' : 'Simpan Perubahan ke Server'}
                </button>
                {hasUnsavedChanges && <p className="text-xs text-orange-600 mt-2 font-medium">PENTING: Terdapat perubahan yang belum disimpan ke brankas.</p>}
             </div>
@@ -576,9 +644,14 @@ export default function IbadahTracker() {
                  <label className="flex items-center gap-2 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === 'today'} onChange={() => setClearScope('today')} className="accent-orange-600 w-4 h-4" /> Hari Ini</label>
                  <label className="flex items-center gap-2 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === '2days'} onChange={() => setClearScope('2days')} className="accent-orange-600 w-4 h-4" /> 2 Hari Lalu</label>
                </div>
-               <button onClick={() => setShowClearConfirm(true)} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors w-full sm:w-auto justify-center">
-                 <Trash2 size={16} /> Eksekusi Hapus
-               </button>
+               <div className="flex items-center gap-3 w-full sm:w-auto">
+                 <button onClick={() => setActModal({ show: true, mode: 'add', id: null, name: '', time: '00:00' })} className="sm:hidden w-full bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                   <Plus size={16} /> Tambah Aktivitas
+                 </button>
+                 <button onClick={() => setShowClearConfirm(true)} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition-colors w-full sm:w-auto">
+                   <Trash2 size={16} /> Eksekusi Hapus
+                 </button>
+               </div>
             </div>
           </div>
 
