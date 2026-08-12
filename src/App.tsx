@@ -29,7 +29,7 @@ const DEFAULT_ACTIVITIES = [
   { id: 6, name: 'Shalat Ashar', time: '15:15' },
   { id: 7, name: 'Shalat Maghrib', time: '18:00' },
   { id: 8, name: 'Dzikir Petang', time: '18:30' },
-  { id: 9, name: 'Shalat Isya', time: '19:15' },
+  { id: 9, name: 'Shalat Isya', time: '19:16' },
   { id: 10, name: 'Tilawah Al-Quran', time: '20:00' }
 ];
 
