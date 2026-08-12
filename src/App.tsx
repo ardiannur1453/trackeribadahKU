@@ -99,7 +99,6 @@ export default function IbadahTracker() {
     setTimeout(() => setToast(''), 4000);
   };
 
-  // Logika Navigasi Bulan
   const changeMonth = (offset: number) => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1));
   };
@@ -111,31 +110,43 @@ export default function IbadahTracker() {
     return Array.from({ length: days }, (_, i) => new Date(year, month, i + 1));
   }, [currentDate]);
 
-  // Logika Evaluasi Pekan Berjalan (<50% Merah)
+  // LOGIKA BARU: Evaluasi Pekan Berjalan yang Lebih Akurat
   const getWeeklyEvaluation = (actId: number) => {
     const today = new Date();
-    // Jika melihat bulan selain bulan ini, abaikan evaluasi pekan berjalan
+    // Abaikan jika sedang melihat bulan lalu/depan
     if (currentDate.getMonth() !== today.getMonth() || currentDate.getFullYear() !== today.getFullYear()) return true;
 
-    // Mendapatkan hari Senin(1) s.d Minggu(7)
     let currentDayOfWeek = today.getDay();
-    if (currentDayOfWeek === 0) currentDayOfWeek = 7; 
+    if (currentDayOfWeek === 0) currentDayOfWeek = 7; // Ubah Minggu jadi hari ke-7
     
+    let expected = 0;
     let doneCount = 0;
-    let daysPassed = currentDayOfWeek;
+    
+    const activity = activities.find(a => a.id === actId);
+    if (!activity) return true;
+    const [h, m] = activity.time.split(':').map(Number);
 
     for (let i = 1; i <= currentDayOfWeek; i++) {
       const checkDate = new Date(today);
       checkDate.setDate(today.getDate() - (currentDayOfWeek - i));
+      
+      // Hitung ekspektasi: Hanya tambahkan jika HARI SUDAH LEWAT, atau JIKA HARI INI, WAKTUNYA SUDAH LEWAT
+      const targetTime = new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate(), h, m);
+      if (today.getTime() >= targetTime.getTime()) {
+         expected++;
+      }
+
       const key = `${checkDate.toISOString().split('T')[0]}-${actId}`;
       if (records[key]?.status === 'done') doneCount++;
     }
 
-    const percentage = daysPassed > 0 ? (doneCount / daysPassed) : 1;
-    return percentage >= 0.5; // True jika aman, False jika < 50%
+    // Jika belum ada jadwal yang masuk (misal Senin pagi sebelum Tahajud), maka aman
+    if (expected === 0) return true;
+    
+    const percentage = doneCount / expected;
+    return percentage >= 0.5; // True (aman) jika >= 50%, False (merah) jika < 50%
   };
 
-  // LOGIC: Check & Timestamp dengan Blokir 1 Menit
   const handleRecord = (day: Date, actId: number, actTime: string, currentStatus: string | undefined) => {
     const now = new Date();
     const [hours, minutes] = actTime.split(':').map(Number);
@@ -218,7 +229,6 @@ export default function IbadahTracker() {
     }
   };
 
-  // Data untuk Grafik Harian
   const chartData = useMemo(() => {
     return daysInMonth.map(d => {
       const dateStr = d.toISOString().split('T')[0];
@@ -233,7 +243,6 @@ export default function IbadahTracker() {
     });
   }, [daysInMonth, records, activities]);
 
-  // Kalkulasi Statistik Total & Mingguan
   const calcStats = () => {
     let totalDone = 0;
     let totalMissed = 0;
@@ -250,13 +259,11 @@ export default function IbadahTracker() {
       const [y, m, d, actId] = key.split('-');
       const recDate = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
       
-      // Filter hanya data bulan yang sedang dipilih untuk statistik total
       if (recDate.getMonth() === currentDate.getMonth() && recDate.getFullYear() === currentDate.getFullYear()) {
          if (val.status === 'done') totalDone++;
          if (val.status === 'missed') totalMissed++;
       }
 
-      // Filter untuk statistik minggu berjalan
       const diffDays = Math.floor((today.getTime() - recDate.getTime()) / (1000 * 60 * 60 * 24));
       if (diffDays >= 0 && diffDays < currentDayOfWeek) {
          if (val.status === 'done') weekDone++;
@@ -433,6 +440,53 @@ export default function IbadahTracker() {
           </div>
         </div>
 
+        {/* --- MANAJEMEN JURNAL POP-UP (Dipindah ke Atas Grafik) --- */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col">
+            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
+              <span className="w-3 h-3 rounded-full bg-orange-500"></span> Arsip Jurnal
+            </h3>
+            <div className="space-y-3 flex-1 overflow-y-auto max-h-[300px] pr-2">
+              {journals.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">Belum ada jurnal tersimpan.</p> : journals.map(j => (
+                <div key={j.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-start group hover:border-orange-300 transition-colors">
+                  <div className="truncate pr-2">
+                    <p className="font-bold text-slate-700 truncate">{j.title}</p>
+                    <p className="text-xs text-slate-500 mt-1">{new Date(j.date).toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</p>
+                  </div>
+                  <div className="flex gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => { setActiveJournal(j); setIsViewModalOpen(true); }} className="p-1 hover:bg-slate-200 rounded text-blue-600"><Eye size={16} /></button>
+                    <button onClick={() => { setActiveJournal(j); setJournalInput({title: j.title, content: j.content}); setIsViewModalOpen(false); }} className="p-1 hover:bg-slate-200 rounded text-orange-600"><Edit3 size={16} /></button>
+                    <button onClick={() => setJournals(journals.filter(x => x.id !== j.id))} className="p-1 hover:bg-slate-200 rounded text-red-600"><Trash2 size={16} /></button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
+              <span className="w-3 h-3 rounded-full bg-orange-500"></span> {activeJournal && !isViewModalOpen ? 'Edit Jurnal' : 'Tulis Jurnal Baru'}
+            </h3>
+            <input type="text" placeholder="Judul Jurnal / Catatan..." value={journalInput.title} onChange={e => setJournalInput({...journalInput, title: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all font-medium" />
+            <textarea placeholder="Tuliskan evaluasi, syukur, atau doa Anda hari ini..." value={journalInput.content} onChange={e => setJournalInput({...journalInput, content: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 h-40 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all resize-none mb-4" />
+            <div className="flex justify-end">
+               <button onClick={saveJournal} className="bg-orange-600 text-white px-6 py-2.5 rounded-xl hover:bg-orange-700 font-bold shadow-md shadow-orange-500/20 transition-all">Simpan Jurnal</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal View Jurnal */}
+        {isViewModalOpen && activeJournal && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative">
+              <button onClick={() => setIsViewModalOpen(false)} className="absolute top-6 right-6 p-2 bg-slate-100 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
+              <h2 className="text-2xl font-bold text-slate-800 mb-2 pr-10">{activeJournal.title}</h2>
+              <p className="text-sm text-orange-600 font-medium mb-6">{new Date(activeJournal.date).toLocaleString('id-ID', {weekday: 'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'})}</p>
+              <div className="whitespace-pre-wrap text-slate-700 leading-relaxed bg-slate-50 p-6 rounded-2xl border border-slate-100 max-h-[60vh] overflow-y-auto">{activeJournal.content}</div>
+            </div>
+          </div>
+        )}
+
         {/* Area Analisa & Grafik (Khusus Area Ini yang Diekspor) */}
         <div ref={chartRef} className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 relative">
           <button onClick={exportChart} className="absolute top-8 right-8 flex items-center gap-2 bg-orange-50 hover:bg-orange-100 text-orange-600 px-4 py-2 rounded-xl text-sm font-bold border border-orange-200 transition-colors">
@@ -532,53 +586,6 @@ export default function IbadahTracker() {
              <span className="text-orange-500 font-bold tracking-widest text-xs uppercase opacity-50">Tafkir Corp Internal System</span>
           </div>
         </div>
-
-        {/* Manajemen Jurnal Pop-up */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col">
-            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
-              <span className="w-3 h-3 rounded-full bg-orange-500"></span> Arsip Jurnal
-            </h3>
-            <div className="space-y-3 flex-1 overflow-y-auto max-h-[300px] pr-2">
-              {journals.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">Belum ada jurnal tersimpan.</p> : journals.map(j => (
-                <div key={j.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-start group hover:border-orange-300 transition-colors">
-                  <div className="truncate pr-2">
-                    <p className="font-bold text-slate-700 truncate">{j.title}</p>
-                    <p className="text-xs text-slate-500 mt-1">{new Date(j.date).toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</p>
-                  </div>
-                  <div className="flex gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => { setActiveJournal(j); setIsViewModalOpen(true); }} className="p-1 hover:bg-slate-200 rounded text-blue-600"><Eye size={16} /></button>
-                    <button onClick={() => { setActiveJournal(j); setJournalInput({title: j.title, content: j.content}); setIsViewModalOpen(false); }} className="p-1 hover:bg-slate-200 rounded text-orange-600"><Edit3 size={16} /></button>
-                    <button onClick={() => setJournals(journals.filter(x => x.id !== j.id))} className="p-1 hover:bg-slate-200 rounded text-red-600"><Trash2 size={16} /></button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          
-          <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
-            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
-              <span className="w-3 h-3 rounded-full bg-orange-500"></span> {activeJournal && !isViewModalOpen ? 'Edit Jurnal' : 'Tulis Jurnal Baru'}
-            </h3>
-            <input type="text" placeholder="Judul Jurnal / Catatan..." value={journalInput.title} onChange={e => setJournalInput({...journalInput, title: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all font-medium" />
-            <textarea placeholder="Tuliskan evaluasi, syukur, atau doa Anda hari ini..." value={journalInput.content} onChange={e => setJournalInput({...journalInput, content: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 h-40 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all resize-none mb-4" />
-            <div className="flex justify-end">
-               <button onClick={saveJournal} className="bg-orange-600 text-white px-6 py-2.5 rounded-xl hover:bg-orange-700 font-bold shadow-md shadow-orange-500/20 transition-all">Simpan Jurnal</button>
-            </div>
-          </div>
-        </div>
-
-        {/* Modal View Jurnal */}
-        {isViewModalOpen && activeJournal && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative">
-              <button onClick={() => setIsViewModalOpen(false)} className="absolute top-6 right-6 p-2 bg-slate-100 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-full transition-colors"><X size={20} /></button>
-              <h2 className="text-2xl font-bold text-slate-800 mb-2 pr-10">{activeJournal.title}</h2>
-              <p className="text-sm text-orange-600 font-medium mb-6">{new Date(activeJournal.date).toLocaleString('id-ID', {weekday: 'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'})}</p>
-              <div className="whitespace-pre-wrap text-slate-700 leading-relaxed bg-slate-50 p-6 rounded-2xl border border-slate-100 max-h-[60vh] overflow-y-auto">{activeJournal.content}</div>
-            </div>
-          </div>
-        )}
 
       </div>
     </div>
