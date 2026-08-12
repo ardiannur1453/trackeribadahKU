@@ -4,7 +4,7 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signO
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus } from 'lucide-react';
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, Award, AlertOctagon } from 'lucide-react';
 
 // --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
@@ -40,6 +40,10 @@ export default function IbadahTracker() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'loading' | 'success'>('loading');
+  const [isFastLoaded, setIsFastLoaded] = useState(false);
+  
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   
@@ -55,11 +59,9 @@ export default function IbadahTracker() {
   
   const [actModal, setActModal] = useState({ show: false, mode: 'add', id: null as number | null, name: '', time: '00:00' });
   
-  const [clearScope, setClearScope] = useState<'today' | '2days'>('today');
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
-  
   const chartRef = useRef<HTMLDivElement>(null);
 
+  // Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -68,6 +70,7 @@ export default function IbadahTracker() {
     return () => unsubscribe();
   }, []);
 
+  // Window Unload Protection
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (hasUnsavedChanges) {
@@ -79,25 +82,38 @@ export default function IbadahTracker() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // Listener Real-time
+  // Fitur 3: AUTO-SAVE DENGAN IDLE TIMER (7 Menit)
+  useEffect(() => {
+    if (hasUnsavedChanges && user) {
+      const timer = setTimeout(() => {
+         saveToServer(true); // Memanggil saveToServer dengan parameter true (Auto-save)
+      }, 7 * 60 * 1000); // 7 Menit Idle
+      return () => clearTimeout(timer);
+    }
+  }, [hasUnsavedChanges, records, journals, activities]);
+
+  // Data Fetching & Real-time Listener
   useEffect(() => {
     if (user) {
       const cacheKey = `tafkir_cache_${user.uid}`;
       const cachedData = localStorage.getItem(cacheKey);
       
+      setShowSyncModal(true);
+      setSyncStatus('loading');
+
       if (cachedData) {
          try {
             const parsed = JSON.parse(cachedData);
             if (parsed.activities) setActivities(parsed.activities);
             if (parsed.records) setRecords(parsed.records);
             if (parsed.journals) setJournals(parsed.journals);
+            setIsFastLoaded(true); 
          } catch (e) {
             console.error("Gagal membaca cache:", e);
          }
       }
 
       setIsSyncing(true);
-
       const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
          if (docSnap.exists()) {
             const data = docSnap.data();
@@ -107,10 +123,14 @@ export default function IbadahTracker() {
             localStorage.setItem(cacheKey, JSON.stringify(data));
          }
          setIsSyncing(false);
+         if (syncStatus === 'loading') {
+            setTimeout(() => setSyncStatus('success'), 600);
+         }
       }, (error) => {
          console.error("Firestore Error:", error);
-         showToast("Koneksi Firebase terputus. Cek izin Database!");
+         showToast("Koneksi Firebase terputus.");
          setIsSyncing(false);
+         setSyncStatus('success');
       });
 
       return () => unsubscribe();
@@ -150,7 +170,6 @@ export default function IbadahTracker() {
      } else {
         newActs = newActs.map(a => a.id === actModal.id ? { ...a, name: actModal.name, time: actModal.time } : a);
      }
-
      newActs.sort((a, b) => a.time.localeCompare(b.time));
 
      setActivities(newActs);
@@ -225,54 +244,32 @@ export default function IbadahTracker() {
     setHasUnsavedChanges(true); 
   };
 
-  // PERBAIKAN: Fungsi Save yang Akan Langsung Berteriak Jika Firebase Gagal
-  const saveToServer = async () => {
+  const saveToServer = async (isAutoSave = false) => {
     if (!user) return;
     setIsSaving(true);
     
     const payload = { activities, records, journals };
     localStorage.setItem(`tafkir_cache_${user.uid}`, JSON.stringify(payload));
-    setHasUnsavedChanges(false); // Reset tombol sementara
+    setHasUnsavedChanges(false); 
     
     try {
       await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
-      showToast("Data berhasil masuk ke Firebase Server!");
+      if(isAutoSave) {
+          showToast("Sistem: Data diamankan secara otomatis (Auto-Save 7 Menit).");
+      } else {
+          showToast("Data berhasil diamankan ke Server!");
+      }
     } catch (error: any) {
       console.error("GAGAL SIMPAN FIREBASE:", error);
-      setHasUnsavedChanges(true); // Nyalakan lagi tombol simpan karena gagal
+      setHasUnsavedChanges(true); 
       if (error.code === 'permission-denied') {
-         showToast("ERROR FIREBASE: Pintu Database masih Terkunci (Rules)!");
+         showToast("ERROR: Pintu Database Firebase Terkunci (Rules)!");
       } else {
-         showToast("Gagal menyambung ke server. Data aman di HP ini.");
+         showToast("Gagal menyambung ke server. Data aman di perangkat ini.");
       }
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const executeClearData = () => {
-    const newRecords = { ...records };
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    
-    Object.keys(newRecords).forEach(key => {
-      const recDateStr = key.split('-').slice(0, 3).join('-');
-      const recDate = new Date(recDateStr);
-      recDate.setHours(0,0,0,0);
-      
-      const diffDays = Math.floor((today.getTime() - recDate.getTime()) / (1000 * 60 * 60 * 24));
-      
-      if (clearScope === 'today' && diffDays === 0) {
-        delete newRecords[key];
-      } else if (clearScope === '2days' && diffDays >= 0 && diffDays <= 2) {
-        delete newRecords[key];
-      }
-    });
-
-    setRecords(newRecords);
-    setHasUnsavedChanges(true);
-    setShowClearConfirm(false);
-    showToast(`Data ${clearScope === 'today' ? 'Hari Ini' : '2 Hari Terakhir'} terhapus. Klik Simpan untuk memperbarui.`);
   };
 
   const saveJournal = () => {
@@ -291,7 +288,7 @@ export default function IbadahTracker() {
     setJournalInput({ title: '', content: '' });
     setActiveJournal(null);
     setHasUnsavedChanges(true);
-    showToast("Jurnal diisi. Klik Simpan Perubahan untuk mengamankan.");
+    showToast("Jurnal telah disematkan. Klik Simpan Perubahan!");
   };
 
   const exportChart = async () => {
@@ -318,10 +315,12 @@ export default function IbadahTracker() {
     });
   }, [daysInMonth, records, activities]);
 
+  // Kalkulasi Statistik Lengkap (Kuantitas, Disiplin, Top/Bottom)
   const calcStats = () => {
     const today = new Date();
-    const timeStats: Record<number, { onTime: number, totalValid: number }> = {};
-    activities.forEach(a => timeStats[a.id] = { onTime: 0, totalValid: 0 });
+    
+    const actData: Record<number, { done: number, missed: number, onTime: number, totalValid: number }> = {};
+    activities.forEach(a => actData[a.id] = { done: 0, missed: 0, onTime: 0, totalValid: 0 });
 
     const weeklyStats = [
       { done: 0, expected: 0 }, { done: 0, expected: 0 }, 
@@ -349,27 +348,33 @@ export default function IbadahTracker() {
     let totalMissed = 0;
 
     Object.entries(records).forEach(([key, val]: [string, any]) => {
-      const [y, m, d, actId] = key.split('-');
+      const [y, m, d, actIdStr] = key.split('-');
       const recDate = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
+      const actId = parseInt(actIdStr);
       
       if (recDate.getMonth() === currentDate.getMonth() && recDate.getFullYear() === currentDate.getFullYear()) {
-         if (val.status === 'done') totalDone++;
-         if (val.status === 'missed') totalMissed++;
+         if (val.status === 'done') {
+            totalDone++;
+            if(actData[actId]) actData[actId].done++;
+         }
+         if (val.status === 'missed') {
+            totalMissed++;
+            if(actData[actId]) actData[actId].missed++;
+         }
       }
 
       if (val.status === 'done' || val.status === 'missed') {
-        const activityId = parseInt(actId);
         const recordDateStr = `${y}-${m}-${d}`;
-        const activity = activities.find(a => a.id === activityId);
+        const activity = activities.find(a => a.id === actId);
         
         if (activity) {
-          timeStats[activityId].totalValid++;
+          if (actData[actId]) actData[actId].totalValid++;
           if (val.actualDay === recordDateStr) {
             const [h, min] = activity.time.split(':').map(Number);
             const targetTime = new Date(parseInt(y), parseInt(m)-1, parseInt(d), h, min).getTime();
             const timeDiffHours = (val.timestamp - targetTime) / (1000 * 60 * 60);
             if (timeDiffHours <= 1 && timeDiffHours >= -2) { 
-              timeStats[activityId].onTime++;
+              if (actData[actId]) actData[actId].onTime++;
             }
           }
         }
@@ -379,7 +384,20 @@ export default function IbadahTracker() {
     const totalFilled = totalDone + totalMissed;
     const donePercent = totalFilled ? Math.round((totalDone / totalFilled) * 100) : 0;
 
-    return { totalDone, donePercent, timeStats, weeklyStats };
+    // Kalkulasi Top & Bottom (Kuantitas & Disiplin)
+    let sortedFreq = activities.map(a => ({ name: a.name, ...actData[a.id] })).filter(a => (a.done + a.missed) > 0);
+    let mostFreq = sortedFreq.length ? [...sortedFreq].sort((a,b) => b.done - a.done)[0] : null;
+    let leastFreq = sortedFreq.length ? [...sortedFreq].sort((a,b) => b.missed - a.missed)[0] : null;
+
+    let sortedDiscip = activities.map(a => {
+       const stat = actData[a.id];
+       return { name: a.name, valid: stat.totalValid, pct: stat.totalValid ? (stat.onTime/stat.totalValid)*100 : 0 };
+    }).filter(a => a.valid > 0);
+    
+    let mostDiscip = sortedDiscip.length ? [...sortedDiscip].sort((a,b) => b.pct - a.pct)[0] : null;
+    let leastDiscip = sortedDiscip.length ? [...sortedDiscip].sort((a,b) => a.pct - b.pct)[0] : null;
+
+    return { totalDone, totalMissed, donePercent, actData, weeklyStats, mostFreq, leastFreq, mostDiscip, leastDiscip };
   };
 
   const stats = calcStats();
@@ -411,7 +429,50 @@ export default function IbadahTracker() {
   return (
     <div className="fixed inset-0 w-full h-full overflow-y-auto bg-slate-50 text-slate-800 font-sans">
       <div className="min-h-full p-4 md:p-8 relative">
+        
+        {/* FITUR 2: TOMBOL SIMPAN MELAYANG (FLOATING ACTION BUTTON) */}
+        {hasUnsavedChanges && (
+           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] w-full px-4 sm:w-auto sm:px-0">
+              <button 
+                  onClick={() => saveToServer(false)}
+                  disabled={isSaving}
+                  className="w-full sm:w-auto bg-orange-600 text-white px-8 py-3.5 rounded-full font-bold flex items-center justify-center gap-3 shadow-[0_8px_30px_rgba(249,115,22,0.5)] hover:bg-orange-700 hover:-translate-y-1 transition-all animate-bounce"
+               >
+                  {isSaving ? <RefreshCw className="animate-spin" size={20} /> : <Save size={20} />}
+                  {isSaving ? 'Menyimpan ke Cloud...' : 'Simpan Perubahan Anda'}
+               </button>
+           </div>
+        )}
 
+        {/* Modal Sync Lock */}
+        {showSyncModal && (
+          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+             <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl relative text-center">
+                {syncStatus === 'loading' ? (
+                   <>
+                      <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                         <RefreshCw size={32} className="text-blue-600 animate-spin" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 mb-2">Mengunduh Data...</h3>
+                      <p className="text-slate-600 text-sm">Mohon tunggu sebentar, sistem sedang menarik data Anda dari server dan menyiapkan sistem lokal.</p>
+                   </>
+                ) : (
+                   <>
+                      <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                         <Check size={32} className="text-green-600" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-800 mb-2">Sinkronisasi Berhasil</h3>
+                      <p className="text-slate-600 text-sm mb-6">Data selesai didownload. Aplikasi siap digunakan.</p>
+                      <button onClick={() => setShowSyncModal(false)} className="px-5 py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-colors w-full shadow-lg shadow-orange-500/30">
+                         Oke
+                      </button>
+                   </>
+                )}
+             </div>
+          </div>
+        )}
+
+        {/* Modal Pengaturan Aktivitas (Add/Edit) */}
         {actModal.show && (
            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
               <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
@@ -434,22 +495,7 @@ export default function IbadahTracker() {
            </div>
         )}
 
-        {showClearConfirm && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-             <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl relative text-center">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                   <AlertTriangle size={32} className="text-red-600" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-800 mb-2">Konfirmasi Hapus</h3>
-                <p className="text-slate-600 text-sm mb-6">Apakah Anda yakin ingin menghapus inputan {clearScope === 'today' ? 'Hari Ini' : '2 Hari Terakhir'} dari layar Anda?</p>
-                <div className="flex gap-3 justify-center">
-                   <button onClick={() => setShowClearConfirm(false)} className="px-5 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors w-full">Batal</button>
-                   <button onClick={executeClearData} className="px-5 py-2.5 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors w-full shadow-lg shadow-red-500/30">Ya, Hapus</button>
-                </div>
-             </div>
-          </div>
-        )}
-
+        {/* Modal View Jurnal */}
         {isViewModalOpen && activeJournal && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-3xl p-8 w-full max-w-2xl shadow-2xl relative">
@@ -461,14 +507,16 @@ export default function IbadahTracker() {
           </div>
         )}
 
+        {/* Toast Notification */}
         {toast && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 border-l-4 border-orange-500 animate-bounce">
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[90] bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 border-l-4 border-orange-500 animate-bounce">
             <AlertCircle size={20} className="text-orange-500" /> {toast}
           </div>
         )}
 
-        <div className="max-w-7xl mx-auto space-y-8">
+        <div className="max-w-7xl mx-auto space-y-8 pb-16">
           
+          {/* Header */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 flex flex-row justify-between items-center gap-4 relative overflow-hidden">
             <div className="flex items-center gap-3 sm:gap-4">
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md shrink-0">
@@ -497,13 +545,15 @@ export default function IbadahTracker() {
             </div>
           </div>
 
+          {/* Tabel Aktivitas */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden relative">
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
+               {/* FITUR 4: Menu Tambah Aktif di Atas (Responsive) */}
                <div className="flex items-center justify-between w-full md:w-auto gap-4">
                   <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                      <span className="w-3 h-3 rounded-full bg-orange-500"></span> Tabel Pelaporan
                   </h2>
-                  <button onClick={() => setActModal({ show: true, mode: 'add', id: null, name: '', time: '00:00' })} className="hidden sm:flex items-center gap-1 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-sm font-bold text-orange-600 hover:bg-orange-50 transition-colors shadow-sm">
+                  <button onClick={() => setActModal({ show: true, mode: 'add', id: null, name: '', time: '00:00' })} className="flex items-center gap-1 bg-white border border-orange-200 px-3 py-1.5 rounded-lg text-sm font-bold text-orange-600 hover:bg-orange-50 transition-colors shadow-sm">
                      <Plus size={16}/> Tambah
                   </button>
                </div>
@@ -582,36 +632,9 @@ export default function IbadahTracker() {
                 </tbody>
               </table>
             </div>
-
-            <div className={`p-4 border-t border-slate-200 flex flex-col items-end transition-colors ${hasUnsavedChanges ? 'bg-orange-50' : 'bg-slate-50'}`}>
-               <button 
-                  onClick={saveToServer}
-                  disabled={!hasUnsavedChanges || isSaving}
-                  className={`px-8 py-3 rounded-xl font-bold flex items-center gap-2 transition-all w-full sm:w-auto justify-center ${hasUnsavedChanges ? 'bg-orange-600 text-white shadow-[0_4px_15px_rgba(249,115,22,0.4)] hover:bg-orange-700 hover:-translate-y-0.5' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
-               >
-                  {isSaving ? <RefreshCw className="animate-spin" size={20} /> : <Save size={20} />}
-                  {isSaving ? 'Menyimpan...' : 'Simpan Perubahan ke Server'}
-               </button>
-               {hasUnsavedChanges && <p className="text-xs text-orange-600 mt-2 font-medium">PENTING: Terdapat perubahan yang belum disimpan ke brankas.</p>}
-            </div>
-            
-            <div className="bg-white p-4 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
-               <div className="flex items-center gap-6 text-sm font-bold text-slate-700 w-full sm:w-auto bg-slate-100 px-4 py-3 rounded-xl border border-slate-200">
-                 <span className="flex items-center gap-2 text-slate-500"><Trash2 size={16}/> Hapus Data:</span>
-                 <label className="flex items-center gap-2 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === 'today'} onChange={() => setClearScope('today')} className="accent-orange-600 w-4 h-4" /> Hari Ini</label>
-                 <label className="flex items-center gap-2 cursor-pointer hover:text-orange-600"><input type="radio" name="clearScope" checked={clearScope === '2days'} onChange={() => setClearScope('2days')} className="accent-orange-600 w-4 h-4" /> 2 Hari Lalu</label>
-               </div>
-               <div className="flex items-center gap-3 w-full sm:w-auto">
-                 <button onClick={() => setActModal({ show: true, mode: 'add', id: null, name: '', time: '00:00' })} className="sm:hidden w-full bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors border border-slate-300">
-                   <Plus size={16} /> Tambah Aktivitas
-                 </button>
-                 <button onClick={() => setShowClearConfirm(true)} className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition-colors w-full sm:w-auto">
-                   <Trash2 size={16} /> Eksekusi Hapus
-                 </button>
-               </div>
-            </div>
           </div>
 
+          {/* Jurnal */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col">
               <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
@@ -641,7 +664,7 @@ export default function IbadahTracker() {
               <input type="text" placeholder="Judul Jurnal / Catatan..." value={journalInput.title} onChange={e => setJournalInput({...journalInput, title: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all font-medium" />
               <textarea placeholder="Tuliskan evaluasi, syukur, atau doa Anda hari ini..." value={journalInput.content} onChange={e => setJournalInput({...journalInput, content: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 h-40 text-slate-800 focus:border-orange-500 focus:ring-2 focus:ring-orange-200 outline-none transition-all resize-none mb-4" />
               <div className="flex justify-end">
-                 <button onClick={saveJournal} className="bg-slate-800 text-white px-6 py-2.5 rounded-xl hover:bg-slate-900 font-bold shadow-md transition-all flex items-center gap-2"><Check size={18}/> Isi Jurnal (Lalu Klik Simpan di Atas)</button>
+                 <button onClick={saveJournal} className="bg-slate-800 text-white px-6 py-2.5 rounded-xl hover:bg-slate-900 font-bold shadow-md transition-all flex items-center gap-2"><Check size={18}/> Draf Jurnal (Lalu Simpan Perubahan)</button>
               </div>
             </div>
           </div>
@@ -680,9 +703,10 @@ export default function IbadahTracker() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+               {/* FITUR 5: Progress Mingguan */}
                <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
                   <h3 className="text-slate-700 font-bold mb-6 text-center flex items-center justify-center gap-2">
-                     <BarChart2 size={18} className="text-blue-500"/> Scoreboard Lead Measures (Per Pekan)
+                     <BarChart2 size={18} className="text-blue-500"/> Progress Mingguan
                   </h3>
                   <div className="space-y-4">
                      {stats.weeklyStats.map((w, idx) => {
@@ -708,56 +732,73 @@ export default function IbadahTracker() {
                   </div>
                </div>
 
-               <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
-                  <h3 className="text-slate-700 font-bold mb-6 text-center">Ringkasan Kuantitas Bulanan</h3>
+               {/* FITUR 6 & 7: Kuantitas Bulanan & Paling Sering / Terlewat */}
+               <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200 flex flex-col justify-between">
+                  <div>
+                     <h3 className="text-slate-700 font-bold mb-6 text-center">Kuantitas Bulanan</h3>
+                     <div className="space-y-4 mb-6">
+                        <div>
+                          <div className="flex justify-between text-sm font-bold mb-1 text-slate-700">
+                             <span>Total Selesai ({stats.totalDone}x)</span>
+                             <span className="text-green-600">{stats.donePercent}%</span>
+                          </div>
+                          <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden">
+                             <div className="h-full bg-green-500 rounded-full" style={{ width: `${stats.donePercent}%` }}></div>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-sm font-bold mb-1 text-slate-700">
+                             <span>Total Terlewat ({stats.totalMissed}x)</span>
+                             <span className="text-red-500">{100 - stats.donePercent}%</span>
+                          </div>
+                          <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
+                             <div className="h-full bg-red-400 rounded-full" style={{ width: `${100 - stats.donePercent}%` }}></div>
+                          </div>
+                        </div>
+                     </div>
+                  </div>
                   
-                  <div className="space-y-6">
-                     <div>
-                       <div className="flex justify-between text-sm font-semibold mb-2 text-slate-600">
-                          <span>Total Selesai Bulan Ini ({stats.totalDone}x)</span>
-                          <span className="text-green-600">{stats.donePercent}%</span>
-                       </div>
-                       <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden">
-                          <div className="h-full bg-green-500 rounded-full transition-all duration-1000" style={{ width: `${stats.donePercent}%` }}></div>
-                       </div>
+                  <div className="pt-4 border-t border-slate-200 space-y-3">
+                     <div className="bg-white p-3 rounded-xl border border-green-100 shadow-sm">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><Award size={12} className="text-green-500"/> Paling Konsisten</p>
+                        <p className="text-sm font-bold text-slate-800">{stats.mostFreq ? stats.mostFreq.name : '-'}</p>
+                        <p className="text-xs text-green-600">{stats.mostFreq ? `${stats.mostFreq.done}x Selesai` : 'Belum ada data'}</p>
+                     </div>
+                     <div className="bg-white p-3 rounded-xl border border-red-100 shadow-sm">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1"><AlertOctagon size={12} className="text-red-500"/> Sering Terlewat</p>
+                        <p className="text-sm font-bold text-slate-800">{stats.leastFreq ? stats.leastFreq.name : '-'}</p>
+                        <p className="text-xs text-red-500">{stats.leastFreq ? `${stats.leastFreq.missed}x Terlewat` : 'Belum ada data'}</p>
                      </div>
                   </div>
                </div>
 
+               {/* FITUR 8: Disiplin Waktu Rangkuman */}
                <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
                   <h3 className="text-slate-700 font-bold mb-4 text-center">Disiplin Waktu (Tanpa Rapel)</h3>
-                  <p className="text-xs text-slate-500 text-center mb-6">Persentase pelaporan Tepat Waktu</p>
+                  <p className="text-xs text-slate-500 text-center mb-6">Analisa kecepatan laporan &lt;1 jam setelah waktu aktivitas.</p>
                   
-                  <div className="space-y-4 max-h-[150px] overflow-y-auto pr-2">
-                     {activities.map(act => {
-                        const stat = stats.timeStats[act.id];
-                        if (stat.totalValid === 0) return null;
-                        const onTimePercent = Math.round((stat.onTime / stat.totalValid) * 100);
-                        
-                        return (
-                           <div key={act.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
-                              <span className="text-sm font-medium text-slate-700">{act.name}</span>
-                              <div className="flex items-center gap-3">
-                                 <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
-                                    <div className={`h-full rounded-full ${onTimePercent >= 80 ? 'bg-green-500' : onTimePercent >= 50 ? 'bg-orange-400' : 'bg-red-500'}`} style={{ width: `${onTimePercent}%` }}></div>
-                                 </div>
-                                 <span className={`text-sm font-bold min-w-[36px] text-right ${onTimePercent >= 80 ? 'text-green-600' : onTimePercent >= 50 ? 'text-orange-500' : 'text-red-500'}`}>
-                                    {onTimePercent}%
-                                 </span>
-                              </div>
-                           </div>
-                        );
-                     })}
-                     {activities.every(a => stats.timeStats[a.id].totalValid === 0) && (
-                        <div className="text-center py-6 text-slate-400 text-sm italic border-2 border-dashed border-slate-200 rounded-xl">
-                           Belum ada aktivitas.
-                        </div>
-                     )}
+                  <div className="space-y-4">
+                     <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 relative z-10">⏱️ Kedisiplinan Terbaik</p>
+                        <p className="text-base font-bold text-slate-800 relative z-10">{stats.mostDiscip ? stats.mostDiscip.name : '-'}</p>
+                        <p className="text-xl font-black text-blue-600 mt-1 relative z-10">{stats.mostDiscip ? `${Math.round(stats.mostDiscip.pct)}%` : '0%'}</p>
+                     </div>
+
+                     <div className="bg-white p-4 rounded-xl border border-orange-100 shadow-sm relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-orange-50 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1 relative z-10">⚠️ Perlu Ditingkatkan</p>
+                        <p className="text-base font-bold text-slate-800 relative z-10">{stats.leastDiscip ? stats.leastDiscip.name : '-'}</p>
+                        <p className="text-xl font-black text-orange-500 mt-1 relative z-10">{stats.leastDiscip ? `${Math.round(stats.leastDiscip.pct)}%` : '0%'}</p>
+                     </div>
                   </div>
                </div>
             </div>
-            <div className="mt-8 pt-4 border-t border-slate-100 text-center">
-               <span className="text-orange-500 font-bold tracking-widest text-xs uppercase opacity-50">Tafkir Corp Internal System</span>
+
+            {/* FITUR 9: Update Footer Hak Cipta */}
+            <div className="mt-12 pt-6 border-t border-slate-100 text-center leading-relaxed">
+               <p className="text-slate-500 text-xs font-semibold">© 2026 TafkirCorp. Seluruh hak cipta milik ALLAAH SWT.</p>
+               <p className="text-slate-400 text-[10px] mt-1">TafkirCorp App TrackerIbadahKU v1.0.0</p>
             </div>
           </div>
 
