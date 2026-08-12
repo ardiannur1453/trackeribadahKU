@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2 } from 'lucide-react';
 
 // --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
@@ -28,16 +29,18 @@ const DEFAULT_ACTIVITIES = [
   { id: 6, name: 'Shalat Ashar', time: '15:15' },
   { id: 7, name: 'Shalat Maghrib', time: '18:00' },
   { id: 8, name: 'Dzikir Petang', time: '18:30' },
-  { id: 9, name: 'Shalat Isya', time: '19:15' },
+  { id: 9, name: 'Shalat Isya', time: '19:16' },
   { id: 10, name: 'Tilawah Al-Quran', time: '20:00' }
 ];
+
+const MONTH_NAMES = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
 
 export default function IbadahTracker() {
   const [user, setUser] = useState<any>(null);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [dataLoaded, setDataLoaded] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   
-  const [currentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [activities] = useState(DEFAULT_ACTIVITIES);
   const [records, setRecords] = useState<any>({});
   const [journals, setJournals] = useState<any[]>([]);
@@ -46,12 +49,10 @@ export default function IbadahTracker() {
   const [activeJournal, setActiveJournal] = useState<any>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [journalInput, setJournalInput] = useState({ title: '', content: '' });
-  
   const [clearScope, setClearScope] = useState<'day' | 'week' | 'month'>('day');
   
   const chartRef = useRef<HTMLDivElement>(null);
 
-  // Auth Effect
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
@@ -60,9 +61,9 @@ export default function IbadahTracker() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch Data
   useEffect(() => {
     if (user) {
+      setIsSyncing(true);
       const fetchData = async () => {
         try {
           const docSnap = await getDoc(doc(db, 'users', user.uid));
@@ -71,46 +72,82 @@ export default function IbadahTracker() {
             if (data.records) setRecords(data.records);
             if (data.journals) setJournals(data.journals);
           }
-          setDataLoaded(true);
         } catch (error) {
           console.error(error);
-          setDataLoaded(true);
+        } finally {
+          setIsSyncing(false);
         }
       };
       fetchData();
     }
   }, [user]);
 
-  // Save Data
   useEffect(() => {
-    if (user && dataLoaded) {
+    if (user && !isSyncing) {
       const timer = setTimeout(() => {
         setDoc(doc(db, 'users', user.uid), { records, journals }, { merge: true });
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [records, journals, user, dataLoaded]);
+  }, [records, journals, user]);
 
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 4000);
   };
 
-  const getDaysInMonth = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
+  const changeMonth = (offset: number) => {
+    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1));
+  };
+
+  const daysInMonth = useMemo(() => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
     const days = new Date(year, month + 1, 0).getDate();
     return Array.from({ length: days }, (_, i) => new Date(year, month, i + 1));
-  };
-  const days = getDaysInMonth(currentDate);
+  }, [currentDate]);
 
-  // LOGIC: Check & Timestamp dengan Blokir 1 Menit
+  // LOGIKA BARU: Evaluasi Pekan Berjalan (Tidak Langsung Merah)
+  const getWeeklyEvaluation = (actId: number) => {
+    const today = new Date();
+    if (currentDate.getMonth() !== today.getMonth() || currentDate.getFullYear() !== today.getFullYear()) return true;
+
+    let currentDayOfWeek = today.getDay();
+    if (currentDayOfWeek === 0) currentDayOfWeek = 7; 
+    
+    let expected = 0;
+    let doneCount = 0;
+    
+    const activity = activities.find(a => a.id === actId);
+    if (!activity) return true;
+    const [h, m] = activity.time.split(':').map(Number);
+
+    for (let i = 1; i <= currentDayOfWeek; i++) {
+      const checkDate = new Date(today);
+      checkDate.setDate(today.getDate() - (currentDayOfWeek - i));
+      
+      const targetTime = new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate(), h, m);
+      if (today.getTime() >= targetTime.getTime()) {
+         expected++;
+      }
+
+      const key = `${checkDate.toISOString().split('T')[0]}-${actId}`;
+      if (records[key]?.status === 'done') doneCount++;
+    }
+
+    // PERBAIKAN: Beri kelonggaran di awal pekan (Senin & Selasa). 
+    // Hanya evaluasi dan beri peringatan merah jika target yang terlewat sudah >= 3 hari
+    if (expected < 3) return true;
+    
+    const percentage = doneCount / expected;
+    return percentage >= 0.5; // True jika aman, False jika < 50%
+  };
+
   const handleRecord = (day: Date, actId: number, actTime: string, currentStatus: string | undefined) => {
     const now = new Date();
     const [hours, minutes] = actTime.split(':').map(Number);
     const targetTime = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, minutes);
     
-    // Blokir jika sebelum waktunya + 1 menit
     const unlockTime = new Date(targetTime.getTime() + 60000); 
     if (now < unlockTime) {
       showToast(`Belum waktunya! Laporan dibuka pukul ${unlockTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`);
@@ -132,13 +169,12 @@ export default function IbadahTracker() {
         [key]: {
           status: newStatus,
           timestamp: now.getTime(),
-          actualDay: now.toISOString().split('T')[0] // Mencatat hari riil saat ditekan
+          actualDay: now.toISOString().split('T')[0]
         }
       });
     }
   };
 
-  // LOGIC: Clear Data dengan Tombol Update
   const executeClearData = () => {
     const newRecords = { ...records };
     const today = new Date();
@@ -154,17 +190,13 @@ export default function IbadahTracker() {
         delete newRecords[key];
       } else if (clearScope === 'week') {
         const diff = Math.floor((today.getTime() - recDate.getTime()) / (1000 * 60 * 60 * 24));
-        // Reset jika dalam rentang 7 hari ke belakang
-        if (diff >= 0 && diff <= 7) {
-          delete newRecords[key];
-        }
+        if (diff >= 0 && diff <= 7) delete newRecords[key];
       }
     });
     setRecords(newRecords);
-    showToast(`Data ${clearScope === 'day' ? 'Harian' : clearScope === 'week' ? 'Mingguan' : 'Bulanan'} berhasil direset!`);
+    showToast(`Data berhasil direset!`);
   };
 
-  // LOGIC: Journaling
   const saveJournal = () => {
     if (!journalInput.title) return showToast("Judul jurnal tidak boleh kosong");
     const newJ = {
@@ -187,40 +219,79 @@ export default function IbadahTracker() {
     if (chartRef.current) {
       const canvas = await html2canvas(chartRef.current, { backgroundColor: '#ffffff' });
       const link = document.createElement('a');
-      link.download = `Tafkir-Stats-${new Date().toISOString().split('T')[0]}.jpg`;
+      link.download = `Tafkir-Stats-${MONTH_NAMES[currentDate.getMonth()]}.jpg`;
       link.href = canvas.toDataURL('image/jpeg');
       link.click();
     }
   };
 
-  // Kalkulasi Statistik
+  const chartData = useMemo(() => {
+    return daysInMonth.map(d => {
+      const dateStr = d.toISOString().split('T')[0];
+      let doneCount = 0;
+      activities.forEach(a => {
+        if (records[`${dateStr}-${a.id}`]?.status === 'done') doneCount++;
+      });
+      return {
+        tanggal: d.getDate().toString(),
+        persentase: Math.round((doneCount / activities.length) * 100)
+      };
+    });
+  }, [daysInMonth, records, activities]);
+
+  // Kalkulasi Statistik Total & Mingguan (Scoreboard)
   const calcStats = () => {
-    let totalDone = 0;
-    let totalMissed = 0;
-    
-    // Analisis Kedisiplinan Waktu (Tepat vs Terlambat)
+    const today = new Date();
     const timeStats: Record<number, { onTime: number, totalValid: number }> = {};
     activities.forEach(a => timeStats[a.id] = { onTime: 0, totalValid: 0 });
 
+    const weeklyStats = [
+      { done: 0, expected: 0 }, { done: 0, expected: 0 }, 
+      { done: 0, expected: 0 }, { done: 0, expected: 0 }, { done: 0, expected: 0 }
+    ];
+
+    // Menghitung ekspektasi per pekan berdasarkan waktu yang sudah lewat
+    daysInMonth.forEach(d => {
+       const weekIdx = Math.floor((d.getDate() - 1) / 7);
+       const dateStr = d.toISOString().split('T')[0];
+       
+       activities.forEach(a => {
+          const [h, m] = a.time.split(':').map(Number);
+          const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
+          
+          if (today.getTime() >= targetTime.getTime()) {
+             weeklyStats[weekIdx].expected++;
+          }
+          if (records[`${dateStr}-${a.id}`]?.status === 'done') {
+             weeklyStats[weekIdx].done++;
+          }
+       });
+    });
+
+    let totalDone = 0;
+    let totalMissed = 0;
+
     Object.entries(records).forEach(([key, val]: [string, any]) => {
-      if (val.status === 'done') totalDone++;
-      if (val.status === 'missed') totalMissed++;
+      const [y, m, d, actId] = key.split('-');
+      const recDate = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
+      
+      if (recDate.getMonth() === currentDate.getMonth() && recDate.getFullYear() === currentDate.getFullYear()) {
+         if (val.status === 'done') totalDone++;
+         if (val.status === 'missed') totalMissed++;
+      }
 
       if (val.status === 'done' || val.status === 'missed') {
-        const [y, m, d, actId] = key.split('-');
         const activityId = parseInt(actId);
         const recordDateStr = `${y}-${m}-${d}`;
         const activity = activities.find(a => a.id === activityId);
         
         if (activity) {
           timeStats[activityId].totalValid++;
-          // Cek Tepat Waktu: Tanggal isi harus sama dengan tanggal jadwal, dan maksimal lewat 1 jam
           if (val.actualDay === recordDateStr) {
             const [h, min] = activity.time.split(':').map(Number);
             const targetTime = new Date(parseInt(y), parseInt(m)-1, parseInt(d), h, min).getTime();
             const timeDiffHours = (val.timestamp - targetTime) / (1000 * 60 * 60);
-            
-            if (timeDiffHours <= 1 && timeDiffHours >= -2) { // Tepat waktu (max 1 jam setelah, 2 jam sebelum)
+            if (timeDiffHours <= 1 && timeDiffHours >= -2) { 
               timeStats[activityId].onTime++;
             }
           }
@@ -230,24 +301,21 @@ export default function IbadahTracker() {
 
     const totalFilled = totalDone + totalMissed;
     const donePercent = totalFilled ? Math.round((totalDone / totalFilled) * 100) : 0;
-    const missedPercent = totalFilled ? Math.round((totalMissed / totalFilled) * 100) : 0;
 
-    return { totalDone, totalMissed, donePercent, missedPercent, timeStats };
+    return { totalDone, donePercent, timeStats, weeklyStats };
   };
 
   const stats = calcStats();
 
-  if (isInitializing) return <div className="min-h-screen bg-[#111] flex items-center justify-center text-orange-500">Memuat Sistem Tafkir...</div>;
+  if (isInitializing) return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-orange-500 font-bold">Memuat Sistem Tafkir...</div>;
 
-  // --- HALAMAN LOGIN ---
   if (!user) {
     return (
       <div className="min-h-screen bg-[#111] flex flex-col items-center justify-center p-4">
         <div className="bg-white/5 border border-orange-500/30 p-8 rounded-2xl shadow-2xl max-w-md w-full text-center relative overflow-hidden">
-           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-32 bg-orange-500/20 rounded-full blur-3xl pointer-events-none"></div>
-          <div className="w-20 h-20 mx-auto mb-6 bg-black rounded-full border border-orange-500 flex items-center justify-center shadow-[0_0_15px_rgba(249,115,22,0.5)]">
-             <span className="text-orange-500 font-bold text-2xl">TC</span>
-          </div>
+        <div className="w-20 h-20 mx-auto mb-6 bg-black rounded-full border border-orange-500 flex items-center justify-center shadow-[0_0_15px_rgba(249,115,22,0.5)] overflow-hidden">
+   <img src="/logo.png" alt="Logo Tafkir Corp" className="w-full h-full object-contain p-2" />
+      </div>
           <h1 className="text-3xl font-bold text-white mb-2">Tafkir Corp</h1>
           <p className="text-orange-500 text-xs tracking-widest uppercase mb-8">Elevate The Level of Thinking</p>
           <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-orange-500/30">
@@ -258,12 +326,8 @@ export default function IbadahTracker() {
     );
   }
 
-  if (!dataLoaded) return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-orange-500 font-bold">Menarik Data dari Brankas Server...</div>;
-
-  // --- HALAMAN UTAMA (TEMA TERANG/SLATE-50) ---
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans p-4 md:p-8">
-      {/* Toast Notification */}
       {toast && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white px-6 py-3 rounded-lg shadow-2xl font-medium flex items-center gap-2 border-l-4 border-orange-500 animate-bounce">
           <AlertCircle size={20} className="text-orange-500" /> {toast}
@@ -272,21 +336,23 @@ export default function IbadahTracker() {
 
       <div className="max-w-7xl mx-auto space-y-8">
         
-        {/* Header Identitas Tafkir */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col md:flex-row justify-between items-center gap-4">
+        {/* Header Identitas & Sinkronisasi */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col md:flex-row justify-between items-center gap-4 relative overflow-hidden">
+          {isSyncing && <div className="absolute top-0 left-0 w-full h-1 bg-slate-100 overflow-hidden"><div className="w-1/2 h-full bg-orange-500 animate-pulse"></div></div>}
+          
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-slate-900 rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md">
-               <span className="text-orange-500 font-bold text-xl">TC</span>
-            </div>
+          <div className="w-16 h-16 bg-slate-900 rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md overflow-hidden">
+   <img src="/logo.png" alt="Logo Tafkir Corp" className="w-full h-full object-contain p-1.5" />
+          </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-900 tracking-wide">Tafkir Corp</h1>
-              <p className="text-xs text-orange-600 font-bold uppercase tracking-[0.2em] mt-1">Elevate The Level of Thinking</p>
+              <p className="text-xs text-orange-600 font-bold uppercase tracking-[0.2em] mt-1">Tracker Ibadah & Hal Positif</p>
             </div>
           </div>
           <div className="flex items-center gap-4 bg-slate-100 px-4 py-2 rounded-xl border border-slate-200">
              <div className="text-right hidden sm:block">
                <div className="text-sm font-semibold text-slate-800">{user.displayName}</div>
-               <div className="text-xs text-slate-500">Tersinkronisasi Cloud</div>
+               <div className="text-xs text-green-600 font-medium">Tersinkronisasi Cloud</div>
              </div>
              <button onClick={() => signOut(auth)} className="ml-2 bg-red-100 text-red-600 hover:bg-red-200 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
                <LogOut size={16}/> Keluar
@@ -294,31 +360,46 @@ export default function IbadahTracker() {
           </div>
         </div>
 
-        {/* Tabel Aktivitas (Desain Terbaca & Lengkap) */}
+        {/* Tabel Aktivitas & Kontrol Bulan */}
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-slate-100 bg-slate-50">
+          <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
              <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <span className="w-3 h-3 rounded-full bg-orange-500"></span>
-                Tabel Pelaporan Harian
+                <span className="w-3 h-3 rounded-full bg-orange-500"></span> Tabel Pelaporan Bulanan
              </h2>
+             
+             {/* Pemilih Bulan/Tahun */}
+             <div className="flex items-center gap-4 bg-white border border-slate-200 px-2 py-1 rounded-lg shadow-sm">
+                <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><ChevronLeft size={20}/></button>
+                <div className="w-40 text-center font-bold text-slate-700">
+                   {MONTH_NAMES[currentDate.getMonth()]} {currentDate.getFullYear()}
+                </div>
+                <button onClick={() => changeMonth(1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><ChevronRight size={20}/></button>
+             </div>
           </div>
+          
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-slate-100 border-b border-slate-200">
                 <tr>
-                  <th className="text-left text-slate-700 font-bold p-4 sticky left-0 bg-slate-100 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[150px]">Aktivitas</th>
-                  {days.map(d => (
+                  <th className="text-left text-slate-700 font-bold p-4 sticky left-0 bg-slate-100 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[170px]">Aktivitas</th>
+                  {daysInMonth.map(d => (
                     <th key={d.toISOString()} className="p-3 text-center font-semibold text-slate-600 min-w-[40px]">{d.getDate()}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {activities.map((act, idx) => (
+                {activities.map((act, idx) => {
+                  const isSafe = getWeeklyEvaluation(act.id);
+                  return (
                   <tr key={act.id} className={idx % 2 === 0 ? 'bg-white hover:bg-orange-50/50' : 'bg-slate-50 hover:bg-orange-50/50'}>
-                    <td className="p-4 font-medium text-slate-800 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-100" style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                      {act.name} <span className="text-xs text-orange-600 font-bold ml-2 bg-orange-100 px-2 py-0.5 rounded">{act.time}</span>
+                    <td className="p-4 font-medium sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-100" style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                      <div className="flex items-center gap-2">
+                        <span className={!isSafe ? 'text-red-600 font-bold' : 'text-slate-800'}>{act.name}</span>
+                        {!isSafe && <AlertTriangle size={14} className="text-red-500" />}
+                      </div>
+                      <span className="text-xs text-orange-600 font-bold bg-orange-100 px-2 py-0.5 rounded mt-1 inline-block">{act.time}</span>
                     </td>
-                    {days.map(d => {
+                    {daysInMonth.map(d => {
                       const key = `${d.toISOString().split('T')[0]}-${act.id}`;
                       const rec = records[key];
                       return (
@@ -331,7 +412,6 @@ export default function IbadahTracker() {
                              <div className="w-7 h-7 mx-auto rounded bg-slate-100 border border-slate-200 hover:border-orange-300 transition-colors" />
                           )}
                           
-                          {/* Tooltip Pintar */}
                           {rec && (
                             <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 bg-slate-900 text-white text-xs p-3 rounded-lg shadow-xl w-max z-30 pointer-events-none">
                               <p className="font-semibold border-b border-slate-700 pb-1 mb-1">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
@@ -348,7 +428,7 @@ export default function IbadahTracker() {
                       );
                     })}
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>
@@ -367,7 +447,7 @@ export default function IbadahTracker() {
           </div>
         </div>
 
-        {/* Manajemen Jurnal Pop-up */}
+        {/* --- MANAJEMEN JURNAL POP-UP --- */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col">
             <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
@@ -414,63 +494,105 @@ export default function IbadahTracker() {
           </div>
         )}
 
-        {/* Area Analisa & Ekspor (Khusus Area Ini yang Diekspor) */}
+        {/* Area Analisa & Grafik (Khusus Area Ini yang Diekspor) */}
         <div ref={chartRef} className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 relative">
           <button onClick={exportChart} className="absolute top-8 right-8 flex items-center gap-2 bg-orange-50 hover:bg-orange-100 text-orange-600 px-4 py-2 rounded-xl text-sm font-bold border border-orange-200 transition-colors">
-            <Download size={16} /> Ekspor Laporan JPG
+            <Download size={16} /> Ekspor Laporan
           </button>
           
-          <h2 className="text-xl font-bold text-slate-800 mb-8 border-l-4 border-orange-500 pl-4">Analisa Kuantitas & Kedisiplinan</h2>
+          <h2 className="text-xl font-bold text-slate-800 mb-8 border-l-4 border-orange-500 pl-4">Analisa & Grafik Progres Harian</h2>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             {/* Box Kuantitas */}
+          {/* Grafik Garis Progres Harian */}
+          <div className="w-full h-72 mb-8 bg-slate-50 rounded-xl p-4 border border-slate-100">
+             <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                   <defs>
+                      <linearGradient id="colorOrange" x1="0" y1="0" x2="0" y2="1">
+                         <stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/>
+                         <stop offset="95%" stopColor="#f97316" stopOpacity={0}/>
+                      </linearGradient>
+                   </defs>
+                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                   <XAxis dataKey="tanggal" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} />
+                   <YAxis stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} domain={[0, 100]} tickFormatter={(val) => `${val}%`} />
+                   <RechartsTooltip 
+                      contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }}
+                      itemStyle={{ color: '#f97316' }}
+                      formatter={(value) => [`${value}% Selesai`, 'Progres']}
+                      labelFormatter={(label) => `Tanggal ${label}`}
+                   />
+                   <Area type="monotone" dataKey="persentase" stroke="#f97316" strokeWidth={3} fillOpacity={1} fill="url(#colorOrange)" />
+                </AreaChart>
+             </ResponsiveContainer>
+             <p className="text-center text-xs text-slate-400 mt-2">Fluktuasi Kuantitas Ibadah Harian di Bulan {MONTH_NAMES[currentDate.getMonth()]}</p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+             {/* Scoreboard Mingguan (FITUR BARU) */}
              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
-                <h3 className="text-slate-700 font-bold mb-6 text-center">Evaluasi Kuantitas Ibadah</h3>
+                <h3 className="text-slate-700 font-bold mb-6 text-center flex items-center justify-center gap-2">
+                   <BarChart2 size={18} className="text-blue-500"/> Scoreboard Lead Measures (Per Pekan)
+                </h3>
+                <div className="space-y-4">
+                   {stats.weeklyStats.map((w, idx) => {
+                      if (w.expected === 0) return null; // Sembunyikan pekan yang belum berjalan
+                      const pct = Math.round((w.done / w.expected) * 100);
+                      const startDay = idx * 7 + 1;
+                      const endDay = Math.min((idx + 1) * 7, daysInMonth.length);
+                      return (
+                         <div key={idx}>
+                            <div className="flex justify-between text-sm font-semibold mb-1 text-slate-600">
+                               <span>Pekan {idx + 1} <span className="text-xs font-normal text-slate-400">(Tgl {startDay}-{endDay})</span></span>
+                               <span className={pct >= 50 ? 'text-blue-600' : 'text-orange-500'}>{pct}%</span>
+                            </div>
+                            <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
+                               <div className={`h-full rounded-full transition-all duration-1000 ${pct >= 80 ? 'bg-green-500' : pct >= 50 ? 'bg-blue-500' : 'bg-orange-500'}`} style={{ width: `${pct}%` }}></div>
+                            </div>
+                         </div>
+                      );
+                   })}
+                   {stats.weeklyStats.every(w => w.expected === 0) && (
+                      <p className="text-xs text-slate-400 text-center py-4">Belum ada data pekan ini.</p>
+                   )}
+                </div>
+             </div>
+
+             {/* Box Kuantitas Total */}
+             <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
+                <h3 className="text-slate-700 font-bold mb-6 text-center">Ringkasan Kuantitas Bulanan</h3>
                 
                 <div className="space-y-6">
                    <div>
                      <div className="flex justify-between text-sm font-semibold mb-2 text-slate-600">
-                        <span>Terlaksana ({stats.totalDone}x)</span>
+                        <span>Total Selesai Bulan Ini ({stats.totalDone}x)</span>
                         <span className="text-green-600">{stats.donePercent}%</span>
                      </div>
                      <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden">
                         <div className="h-full bg-green-500 rounded-full transition-all duration-1000" style={{ width: `${stats.donePercent}%` }}></div>
                      </div>
                    </div>
-
-                   <div>
-                     <div className="flex justify-between text-sm font-semibold mb-2 text-slate-600">
-                        <span>Terlewat/Bolong ({stats.totalMissed}x)</span>
-                        <span className="text-red-500">{stats.missedPercent}%</span>
-                     </div>
-                     <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-red-500 rounded-full transition-all duration-1000" style={{ width: `${stats.missedPercent}%` }}></div>
-                     </div>
-                   </div>
                 </div>
              </div>
 
-             {/* Box Kedisiplinan */}
+             {/* Box Kedisiplinan Waktu */}
              <div className="bg-slate-50 rounded-2xl p-6 border border-slate-200">
-                <h3 className="text-slate-700 font-bold mb-4 text-center">Disiplin Lapor Sesuai Waktu (Tanpa Rapel)</h3>
-                <p className="text-xs text-slate-500 text-center mb-6">Persentase pelaporan Tepat Waktu (Max 1 jam setelah aktivitas)</p>
+                <h3 className="text-slate-700 font-bold mb-4 text-center">Disiplin Waktu (Tanpa Rapel)</h3>
+                <p className="text-xs text-slate-500 text-center mb-6">Persentase pelaporan Tepat Waktu</p>
                 
-                <div className="space-y-4 max-h-[200px] overflow-y-auto pr-2">
+                <div className="space-y-4 max-h-[150px] overflow-y-auto pr-2">
                    {activities.map(act => {
                       const stat = stats.timeStats[act.id];
-                      // Menampilkan jika minimal ada 1 data laporan valid
                       if (stat.totalValid === 0) return null;
-                      
                       const onTimePercent = Math.round((stat.onTime / stat.totalValid) * 100);
                       
                       return (
                          <div key={act.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
                             <span className="text-sm font-medium text-slate-700">{act.name}</span>
                             <div className="flex items-center gap-3">
-                               <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                               <div className="w-16 h-2 bg-slate-100 rounded-full overflow-hidden">
                                   <div className={`h-full rounded-full ${onTimePercent >= 80 ? 'bg-green-500' : onTimePercent >= 50 ? 'bg-orange-400' : 'bg-red-500'}`} style={{ width: `${onTimePercent}%` }}></div>
                                </div>
-                               <span className={`text-sm font-bold min-w-[40px] text-right ${onTimePercent >= 80 ? 'text-green-600' : onTimePercent >= 50 ? 'text-orange-500' : 'text-red-500'}`}>
+                               <span className={`text-sm font-bold min-w-[36px] text-right ${onTimePercent >= 80 ? 'text-green-600' : onTimePercent >= 50 ? 'text-orange-500' : 'text-red-500'}`}>
                                   {onTimePercent}%
                                </span>
                             </div>
@@ -479,7 +601,7 @@ export default function IbadahTracker() {
                    })}
                    {activities.every(a => stats.timeStats[a.id].totalValid === 0) && (
                       <div className="text-center py-6 text-slate-400 text-sm italic border-2 border-dashed border-slate-200 rounded-xl">
-                         Belum ada aktivitas yang dilaporkan secara valid.
+                         Belum ada aktivitas.
                       </div>
                    )}
                 </div>
