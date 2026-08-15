@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
-import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
+// TAMBAHAN: Import fitur query database untuk Leaderboard & Admin
+import { getFirestore, doc, setDoc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
-// PERBAIKAN POIN 10: Mengganti AreaChart menjadi ComposedChart untuk menggabungkan Area dan Line (Trendline)
 import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-// PERBAIKAN POIN 9: Menambahkan ikon Search
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, Award, AlertOctagon, Search } from 'lucide-react';
+// TAMBAHAN: Import Ikon Shield (Admin), Medal (Leaderboard), Users
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, Award, AlertOctagon, Search, Shield, Medal, Users } from 'lucide-react';
 
 // --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
@@ -62,7 +62,6 @@ export default function IbadahTracker() {
   const [records, setRecords] = useState<any>({});
   const [journals, setJournals] = useState<any[]>([]);
   
-  // Fitur 9: State untuk Pencarian dan Pengurutan Jurnal
   const [journalSearch, setJournalSearch] = useState('');
   const [journalSort, setJournalSort] = useState<'newest' | 'oldest' | 'az' | 'za'>('newest');
   
@@ -74,6 +73,15 @@ export default function IbadahTracker() {
   const [actModal, setActModal] = useState({ show: false, mode: 'add', id: null as number | null, name: '', time: '00:00' });
   
   const chartRef = useRef<HTMLDivElement>(null);
+
+  // --- STATE SUPER ADMIN & KOMUNITAS ---
+  const isAdmin = user?.email === 'coachardi1453@gmail.com';
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [adminCommunityInputs, setAdminCommunityInputs] = useState<Record<string, string>>({});
+  
+  const [myCommunity, setMyCommunity] = useState<string | null>(null);
+  const [communityUsers, setCommunityUsers] = useState<any[]>([]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -103,6 +111,7 @@ export default function IbadahTracker() {
     }
   }, [hasUnsavedChanges, records, journals, activities]);
 
+  // Data Fetching Pribadi
   useEffect(() => {
     if (user) {
       const cacheKey = `tafkir_cache_${user.uid}`;
@@ -124,13 +133,18 @@ export default function IbadahTracker() {
       }
 
       setIsSyncing(true);
-      const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      const userRef = doc(db, 'users', user.uid);
+      const unsubscribe = onSnapshot(userRef, (docSnap) => {
          if (docSnap.exists()) {
             const data = docSnap.data();
             if (data.activities) setActivities(data.activities);
             if (data.records) setRecords(data.records);
             if (data.journals) setJournals(data.journals);
+            if (data.community) setMyCommunity(data.community); // Ambil status komunitas kita
             localStorage.setItem(cacheKey, JSON.stringify(data));
+         } else {
+            // Jika user baru pertama login, buat profil awal agar terbaca Admin
+            setDoc(userRef, { displayName: user.displayName, email: user.email, activities: DEFAULT_ACTIVITIES }, { merge: true });
          }
          setIsSyncing(false);
          if (syncStatus === 'loading') {
@@ -146,6 +160,48 @@ export default function IbadahTracker() {
       return () => unsubscribe();
     }
   }, [user]);
+
+  // Data Fetching ADMIN (Menarik semua user)
+  useEffect(() => {
+    if (isAdmin) {
+      const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
+         const usersData: any[] = [];
+         const inputs: Record<string, string> = {};
+         snapshot.forEach(d => {
+            const data = d.data();
+            usersData.push({ id: d.id, ...data });
+            inputs[d.id] = data.community || '';
+         });
+         setAllUsers(usersData);
+         setAdminCommunityInputs(inputs);
+      });
+      return () => unsub();
+    }
+  }, [isAdmin]);
+
+  // Data Fetching KOMUNITAS (Menarik data klasemen kawan se-komunitas)
+  useEffect(() => {
+    if (myCommunity) {
+      const q = query(collection(db, 'users'), where('community', '==', myCommunity));
+      const unsub = onSnapshot(q, (snapshot) => {
+         const usersData: any[] = [];
+         snapshot.forEach(d => usersData.push({ id: d.id, ...d.data() }));
+         setCommunityUsers(usersData);
+      });
+      return () => unsub();
+    }
+  }, [myCommunity]);
+
+  // Fungsi Admin Mengubah Komunitas
+  const handleUpdateCommunity = async (targetUid: string) => {
+     const newComm = adminCommunityInputs[targetUid].trim();
+     try {
+        await setDoc(doc(db, 'users', targetUid), { community: newComm }, { merge: true });
+        showToast("Komunitas berhasil diperbarui!");
+     } catch (e) {
+        showToast("Gagal memperbarui komunitas.");
+     }
+  };
 
   const handleLogout = () => {
     if (hasUnsavedChanges) {
@@ -224,7 +280,6 @@ export default function IbadahTracker() {
     return percentage >= 0.5; 
   };
 
-  // PERBAIKAN POIN 8: Fungsi Kalkulasi Persentase Harian untuk Footer Tabel
   const getDailyPercentage = (day: Date) => {
      const today = new Date();
      const dateStr = getLocalDateStr(day);
@@ -234,7 +289,6 @@ export default function IbadahTracker() {
      activities.forEach(a => {
         const [h, m] = a.time.split(':').map(Number);
         const targetTime = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m);
-        // Hanya hitung jika jadwalnya SUDAH berlalu (bisa dinilai)
         if (today.getTime() >= targetTime.getTime()) {
            expected++;
            if (records[`${dateStr}-${a.id}`]?.status === 'done') done++;
@@ -285,116 +339,7 @@ export default function IbadahTracker() {
     setHasUnsavedChanges(true); 
   };
 
-  const saveToServer = async (isAutoSave = false) => {
-    if (!user) return;
-    setIsSaving(true);
-    
-    const payload = { activities, records, journals };
-    localStorage.setItem(`tafkir_cache_${user.uid}`, JSON.stringify(payload));
-    setHasUnsavedChanges(false); 
-    
-    try {
-      await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
-      if(isAutoSave) {
-          showToast("Sistem: Data diamankan secara otomatis (Auto-Save 7 Menit).");
-      } else {
-          showToast("Data berhasil diamankan ke Server!");
-      }
-    } catch (error: any) {
-      console.error("GAGAL SIMPAN FIREBASE:", error);
-      setHasUnsavedChanges(true); 
-      if (error.code === 'permission-denied') {
-         showToast("ERROR: Pintu Database Firebase Terkunci (Rules)!");
-      } else {
-         showToast("Gagal menyambung ke server. Data aman di perangkat ini.");
-      }
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const saveJournal = () => {
-    if (!journalInput.title) return showToast("Judul jurnal tidak boleh kosong");
-    const newJ = {
-      id: activeJournal ? activeJournal.id : Date.now(),
-      title: journalInput.title,
-      content: journalInput.content,
-      date: new Date().toISOString() 
-    };
-    if (activeJournal) {
-      setJournals(journals.map(j => j.id === activeJournal.id ? newJ : j));
-    } else {
-      setJournals([newJ, ...journals]);
-    }
-    setJournalInput({ title: '', content: '' });
-    setActiveJournal(null);
-    setHasUnsavedChanges(true);
-    showToast("Jurnal telah disematkan. Klik Simpan Perubahan!");
-  };
-
-  // PERBAIKAN POIN 9: Fungsi Pengurutan Jurnal
-  const filteredAndSortedJournals = useMemo(() => {
-     let result = journals.filter(j => 
-        j.title.toLowerCase().includes(journalSearch.toLowerCase()) || 
-        j.content.toLowerCase().includes(journalSearch.toLowerCase())
-     );
-     
-     return result.sort((a, b) => {
-        if (journalSort === 'newest') return new Date(b.date).getTime() - new Date(a.date).getTime();
-        if (journalSort === 'oldest') return new Date(a.date).getTime() - new Date(b.date).getTime();
-        if (journalSort === 'az') return a.title.localeCompare(b.title);
-        if (journalSort === 'za') return b.title.localeCompare(a.title);
-        return 0;
-     });
-  }, [journals, journalSearch, journalSort]);
-
-  const exportChart = async () => {
-    if (chartRef.current) {
-      const canvas = await html2canvas(chartRef.current, { backgroundColor: '#ffffff', scale: 2 });
-      const link = document.createElement('a');
-      
-      const firstName = user.displayName?.split(' ')[0] || 'User';
-      const yearStr = currentDate.getFullYear().toString().slice(-2);
-      
-      link.download = `${firstName}-Tafkir-Stats-${MONTH_NAMES[currentDate.getMonth()]}-${yearStr}-Ibadahku.jpg`;
-      link.href = canvas.toDataURL('image/jpeg');
-      link.click();
-    }
-  };
-
-  // PERBAIKAN POIN 10: Kalkulasi Regresi Linier (Trendline)
-  const chartData = useMemo(() => {
-    const rawData = daysInMonth.map((d, i) => {
-      const dateStr = getLocalDateStr(d);
-      let doneCount = 0;
-      activities.forEach(a => {
-        if (records[`${dateStr}-${a.id}`]?.status === 'done') doneCount++;
-      });
-      const pct = activities.length ? Math.round((doneCount / activities.length) * 100) : 0;
-      return { x: i + 1, tanggal: d.getDate().toString(), persentase: pct };
-    });
-
-    // Menghitung Regresi Linier untuk Garis Trend (y = mx + b)
-    const n = rawData.length;
-    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-    rawData.forEach(d => {
-       sumX += d.x;
-       sumY += d.persentase;
-       sumXY += d.x * d.persentase;
-       sumX2 += d.x * d.x;
-    });
-
-    // Mencegah error pembagian dengan nol
-    const denominator = (n * sumX2 - sumX * sumX);
-    const m = denominator === 0 ? 0 : (n * sumXY - sumX * sumY) / denominator;
-    const b = (sumY - m * sumX) / n;
-
-    return rawData.map(d => ({
-      ...d,
-      trend: Math.max(0, Math.min(100, Math.round(m * d.x + b))) // Mengunci garis agar tidak tembus -0 atau 100+
-    }));
-  }, [daysInMonth, records, activities]);
-
+  // Kalkulasi Statistik Inti (Digunakan sebelum saveToServer untuk mengambil donePercent)
   const calcStats = () => {
     const actData: Record<number, { done: number, missed: number, onTime: number, late: number }> = {};
     activities.forEach(a => actData[a.id] = { done: 0, missed: 0, onTime: 0, late: 0 });
@@ -428,14 +373,9 @@ export default function IbadahTracker() {
                   const targetTime = new Date(y, m - 1, d, h, min).getTime();
                   const timeDiffMins = (val.timestamp - targetTime) / 60000;
                   
-                  if (timeDiffMins <= 30) { 
-                     actData[actId].onTime++;
-                  } else {
-                     actData[actId].late++;
-                  }
-               } else {
-                  actData[actId].late++;
-               }
+                  if (timeDiffMins <= 30) { actData[actId].onTime++; } 
+                  else { actData[actId].late++; }
+               } else { actData[actId].late++; }
             }
          }
          if (val.status === 'missed') {
@@ -452,12 +392,8 @@ export default function IbadahTracker() {
        activities.forEach(a => {
           const [h, m] = a.time.split(':').map(Number);
           const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
-          if (today.getTime() >= targetTime.getTime()) {
-             weeklyStats[weekIdx].expected++;
-          }
-          if (records[`${dateStr}-${a.id}`]?.status === 'done') {
-             weeklyStats[weekIdx].done++;
-          }
+          if (today.getTime() >= targetTime.getTime()) { weeklyStats[weekIdx].expected++; }
+          if (records[`${dateStr}-${a.id}`]?.status === 'done') { weeklyStats[weekIdx].done++; }
        });
     });
 
@@ -471,8 +407,7 @@ export default function IbadahTracker() {
     let sortedDiscip = activities.map(a => {
        const stat = actData[a.id];
        return { 
-           name: a.name, 
-           done: stat.done,
+           name: a.name, done: stat.done,
            onTimePct: stat.done > 0 ? (stat.onTime / stat.done) * 100 : 0, 
            latePct: stat.done > 0 ? (stat.late / stat.done) * 100 : 0 
        };
@@ -486,13 +421,123 @@ export default function IbadahTracker() {
 
   const stats = calcStats();
 
+  const saveToServer = async (isAutoSave = false) => {
+    if (!user) return;
+    setIsSaving(true);
+    
+    // PEMBARUAN: Memasukkan Skor Bulanan ke Profil Pengguna saat disimpan
+    const monthKey = `${String(currentDate.getMonth() + 1).padStart(2, '0')}-${currentDate.getFullYear()}`;
+    const payload = { 
+       activities, 
+       records, 
+       journals,
+       displayName: user.displayName,
+       email: user.email,
+       [`score_${monthKey}`]: stats.donePercent // Merekam skor bulan ini ke database
+    };
+    
+    localStorage.setItem(`tafkir_cache_${user.uid}`, JSON.stringify(payload));
+    setHasUnsavedChanges(false); 
+    
+    try {
+      await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
+      if(isAutoSave) { showToast("Sistem: Data diamankan secara otomatis (Auto-Save 7 Menit)."); } 
+      else { showToast("Data berhasil diamankan ke Server!"); }
+    } catch (error: any) {
+      console.error("GAGAL SIMPAN FIREBASE:", error);
+      setHasUnsavedChanges(true); 
+      if (error.code === 'permission-denied') { showToast("ERROR: Pintu Database Firebase Terkunci (Rules)!"); } 
+      else { showToast("Gagal menyambung ke server. Data aman di perangkat ini."); }
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const saveJournal = () => {
+    if (!journalInput.title) return showToast("Judul jurnal tidak boleh kosong");
+    const newJ = {
+      id: activeJournal ? activeJournal.id : Date.now(),
+      title: journalInput.title,
+      content: journalInput.content,
+      date: new Date().toISOString() 
+    };
+    if (activeJournal) { setJournals(journals.map(j => j.id === activeJournal.id ? newJ : j)); } 
+    else { setJournals([newJ, ...journals]); }
+    
+    setJournalInput({ title: '', content: '' });
+    setActiveJournal(null);
+    setHasUnsavedChanges(true);
+    showToast("Jurnal telah disematkan. Klik Simpan Perubahan!");
+  };
+
+  const filteredAndSortedJournals = useMemo(() => {
+     let result = journals.filter(j => 
+        j.title.toLowerCase().includes(journalSearch.toLowerCase()) || 
+        j.content.toLowerCase().includes(journalSearch.toLowerCase())
+     );
+     return result.sort((a, b) => {
+        if (journalSort === 'newest') return new Date(b.date).getTime() - new Date(a.date).getTime();
+        if (journalSort === 'oldest') return new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (journalSort === 'az') return a.title.localeCompare(b.title);
+        if (journalSort === 'za') return b.title.localeCompare(a.title);
+        return 0;
+     });
+  }, [journals, journalSearch, journalSort]);
+
+  const exportChart = async () => {
+    if (chartRef.current) {
+      const canvas = await html2canvas(chartRef.current, { backgroundColor: '#ffffff', scale: 2 });
+      const link = document.createElement('a');
+      const firstName = user.displayName?.split(' ')[0] || 'User';
+      const yearStr = currentDate.getFullYear().toString().slice(-2);
+      link.download = `${firstName}-Tafkir-Stats-${MONTH_NAMES[currentDate.getMonth()]}-${yearStr}-Ibadahku.jpg`;
+      link.href = canvas.toDataURL('image/jpeg');
+      link.click();
+    }
+  };
+
+  const chartData = useMemo(() => {
+    const rawData = daysInMonth.map((d, i) => {
+      const dateStr = getLocalDateStr(d);
+      let doneCount = 0;
+      activities.forEach(a => { if (records[`${dateStr}-${a.id}`]?.status === 'done') doneCount++; });
+      const pct = activities.length ? Math.round((doneCount / activities.length) * 100) : 0;
+      return { x: i + 1, tanggal: d.getDate().toString(), persentase: pct };
+    });
+
+    const n = rawData.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+    rawData.forEach(d => { sumX += d.x; sumY += d.persentase; sumXY += d.x * d.persentase; sumX2 += d.x * d.x; });
+
+    const denominator = (n * sumX2 - sumX * sumX);
+    const m = denominator === 0 ? 0 : (n * sumXY - sumX * sumY) / denominator;
+    const b = (sumY - m * sumX) / n;
+
+    return rawData.map(d => ({ ...d, trend: Math.max(0, Math.min(100, Math.round(m * d.x + b))) }));
+  }, [daysInMonth, records, activities]);
+
+  // Klasemen Real-Time Berdasarkan Komunitas
+  const leaderboardData = useMemo(() => {
+     if (!myCommunity || communityUsers.length === 0) return [];
+     const monthKey = `${String(currentDate.getMonth() + 1).padStart(2, '0')}-${currentDate.getFullYear()}`;
+     
+     return communityUsers
+        .map(u => ({
+           name: u.displayName || 'Anonim',
+           score: u[`score_${monthKey}`] || 0
+        }))
+        .filter(u => u.score > 0) // Sembunyikan yang belum mengisi sama sekali
+        .sort((a,b) => b.score - a.score)
+        .slice(0, 5); // Ambil Top 5
+  }, [communityUsers, currentDate, myCommunity]);
+
+
   if (isInitializing) return (
      <div className="fixed inset-0 w-full h-full bg-slate-50 flex items-center justify-center text-orange-500 font-bold z-50">
         Memuat Sistem Tafkir...
      </div>
   );
 
-  // PERBAIKAN POIN 1: Identitas Halaman Login
   if (!user) {
     return (
       <div className="fixed inset-0 w-full h-full overflow-y-auto bg-[#111111] flex flex-col items-center justify-center p-4 z-50">
@@ -515,6 +560,53 @@ export default function IbadahTracker() {
     <div className="fixed inset-0 w-full h-full overflow-y-auto bg-slate-50 text-slate-800 font-sans">
       <div className="min-h-full p-4 md:p-8 relative">
         
+        {/* PANEL SUPER ADMIN (Modal) */}
+        {showAdminPanel && isAdmin && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-4xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
+                 <button onClick={() => setShowAdminPanel(false)} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+                 <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-3"><Shield className="text-blue-500"/> Super Admin Dashboard</h2>
+                 <p className="text-sm text-slate-500 mb-8 border-b border-slate-100 pb-4">Kelola akses dan pengelompokan komunitas untuk Gamifikasi (Fastabiqul Khairat).</p>
+                 
+                 <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                       <thead className="bg-slate-50 text-slate-600">
+                          <tr>
+                             <th className="p-4 font-bold rounded-tl-xl">Nama Pengguna</th>
+                             <th className="p-4 font-bold">Email Google</th>
+                             <th className="p-4 font-bold">Nama Komunitas</th>
+                             <th className="p-4 font-bold text-center rounded-tr-xl">Aksi</th>
+                          </tr>
+                       </thead>
+                       <tbody className="divide-y divide-slate-100">
+                          {allUsers.map((u) => (
+                             <tr key={u.id} className="hover:bg-slate-50/50">
+                                <td className="p-4 font-bold text-slate-800">{u.displayName || 'Anonim'}</td>
+                                <td className="p-4 text-slate-500">{u.email}</td>
+                                <td className="p-4">
+                                   <input 
+                                      type="text" 
+                                      placeholder="Kosong"
+                                      value={adminCommunityInputs[u.id] || ''} 
+                                      onChange={(e) => setAdminCommunityInputs({...adminCommunityInputs, [u.id]: e.target.value})}
+                                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none"
+                                   />
+                                </td>
+                                <td className="p-4 text-center">
+                                   <button 
+                                      onClick={() => handleUpdateCommunity(u.id)}
+                                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors shadow-sm"
+                                   >Simpan</button>
+                                </td>
+                             </tr>
+                          ))}
+                       </tbody>
+                    </table>
+                 </div>
+              </div>
+           </div>
+        )}
+
         {hasUnsavedChanges && (
            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] w-full px-4 sm:w-auto sm:px-0 pointer-events-none">
               <button 
@@ -596,7 +688,6 @@ export default function IbadahTracker() {
 
         <div className="max-w-7xl mx-auto space-y-8 pb-16">
           
-          {/* Header */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 flex flex-row justify-between items-center gap-4 relative overflow-hidden">
             <div className="flex items-center gap-3 sm:gap-4">
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md shrink-0">
@@ -611,7 +702,6 @@ export default function IbadahTracker() {
             <div className="flex items-center gap-2 sm:gap-4 bg-slate-100 px-3 py-2 rounded-xl border border-slate-200">
                <div className="text-right flex flex-col justify-center">
                  <div className="text-sm font-semibold text-slate-800 max-w-[80px] sm:max-w-none truncate">{user.displayName?.split(' ')[0]}</div>
-                 {/* PERBAIKAN POIN 2: Sinkronisasi Teks */}
                  <div className="text-[10px] font-medium flex items-center gap-1 justify-end">
                     {isSyncing ? (
                        <span className="text-blue-500 flex items-center gap-1"><RefreshCw size={10} className="animate-spin"/> Synchronizing...</span>
@@ -620,16 +710,22 @@ export default function IbadahTracker() {
                     )}
                  </div>
                </div>
-               <button onClick={handleLogout} className="ml-1 sm:ml-2 bg-red-100 text-red-600 hover:bg-red-200 p-2 sm:px-3 sm:py-1.5 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
+               
+               {/* TOMBOL SUPER ADMIN */}
+               {isAdmin && (
+                  <button onClick={() => setShowAdminPanel(true)} className="ml-1 bg-blue-100 text-blue-600 hover:bg-blue-200 p-2 rounded-lg transition-colors" title="Super Admin Dashboard">
+                     <Shield size={16}/>
+                  </button>
+               )}
+               
+               <button onClick={handleLogout} className="ml-1 bg-red-100 text-red-600 hover:bg-red-200 p-2 sm:px-3 sm:py-1.5 rounded-lg transition-colors text-sm font-medium flex items-center gap-1">
                  <LogOut size={16}/> <span className="hidden sm:block">Keluar</span>
                </button>
             </div>
           </div>
 
-          {/* Tabel Utama */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden relative">
             <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col items-center gap-4">
-               {/* PERBAIKAN POIN 5: Total Progress di Atas Bulan */}
                <div className="w-full flex justify-center mb-1">
                   <div className={`px-4 py-1.5 rounded-full text-sm font-bold shadow-sm border ${stats.donePercent >= 50 ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>
                      Total Progress Bulan Ini: {stats.donePercent}%
@@ -639,10 +735,8 @@ export default function IbadahTracker() {
                <div className="flex flex-col md:flex-row justify-between w-full gap-4 items-center">
                   <div className="flex items-center justify-between w-full md:w-auto gap-4">
                      <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                        {/* PERBAIKAN POIN 3: Judul Tabel */}
                         <span className="w-3 h-3 rounded-full bg-orange-500"></span> Tabel Hisab Pribadi
                      </h2>
-                     {/* PERBAIKAN POIN 4: Nama Tombol Tambah */}
                      <button onClick={() => setActModal({ show: true, mode: 'add', id: null, name: '', time: '00:00' })} className="flex items-center gap-1 bg-white border border-orange-200 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-orange-600 hover:bg-orange-50 transition-colors shadow-sm whitespace-nowrap">
                         <Plus size={16}/> <span className="hidden sm:block">Tambah Ibadah/Aktivitas Positif KU</span><span className="sm:hidden">Tambah</span>
                      </button>
@@ -662,7 +756,6 @@ export default function IbadahTracker() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-100 border-b border-slate-200">
                   <tr>
-                    {/* PERBAIKAN POIN 6 & 11: Header Kolom & Lebar Kolom Mobile */}
                     <th className="text-left text-slate-700 font-bold p-3 sm:p-4 sticky left-0 bg-slate-100 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] sm:min-w-[240px] max-w-[160px] sm:max-w-none">
                        Ibadah & Aktivitas Positif KU
                     </th>
@@ -687,7 +780,6 @@ export default function IbadahTracker() {
                     return (
                     <tr key={act.id} className={idx % 2 === 0 ? 'bg-white hover:bg-orange-50/50' : 'bg-slate-50 hover:bg-orange-50/50'}>
                       
-                      {/* CSS Kolom Sticky Mobile (Sempit namun fungsional) */}
                       <td className="p-2 sm:p-3 font-medium sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-100 whitespace-normal sm:whitespace-nowrap" style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
                         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
                            <div className="flex sm:flex-col gap-1 shrink-0">
@@ -697,7 +789,6 @@ export default function IbadahTracker() {
                            <div className="flex flex-col items-start leading-tight min-w-0">
                               <div className="flex items-center gap-1 sm:gap-2 flex-wrap sm:flex-nowrap">
                                 <span className={`text-xs sm:text-sm truncate sm:overflow-visible break-words ${!isSafe ? 'text-red-600 font-bold' : 'text-slate-800'}`}>{act.name}</span>
-                                {/* PERBAIKAN POIN 7: Tooltip Khusus Tanda Seru Merah */}
                                 {!isSafe && (
                                    <div className="relative group/alert cursor-help">
                                       <AlertTriangle size={14} className="text-red-500 shrink-0" />
@@ -754,7 +845,6 @@ export default function IbadahTracker() {
                     </tr>
                   )})}
                 </tbody>
-                {/* PERBAIKAN POIN 8: Ketercapaian Harian (%) */}
                 <tfoot>
                   <tr className="bg-slate-50 border-t-2 border-slate-200">
                     <td className="p-3 sm:p-4 text-right font-bold text-slate-700 sticky left-0 z-20 bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-xs sm:text-sm">
@@ -771,9 +861,52 @@ export default function IbadahTracker() {
             </div>
           </div>
 
+          {/* PANEL GAMIFIKASI GLOBAL (LEADERBOARD) - Hanya Muncul Jika Punya Komunitas */}
+          {myCommunity && (
+             <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl shadow-xl p-6 md:p-8 border border-slate-700 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                
+                <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 border-b border-slate-700 pb-4">
+                   <div>
+                      <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                         <Medal className="text-yellow-400" size={28}/> Fastabiqul Khairat
+                      </h2>
+                      <p className="text-slate-400 text-sm mt-1 font-medium flex items-center gap-2"><Users size={16}/> Komunitas: <span className="text-yellow-400">{myCommunity}</span></p>
+                   </div>
+                   <div className="bg-slate-800/50 border border-slate-600 px-4 py-2 rounded-xl text-xs text-slate-300 font-bold uppercase tracking-widest">
+                      Bulan {MONTH_NAMES[currentDate.getMonth()]}
+                   </div>
+                </div>
+
+                <div className="relative z-10">
+                   {leaderboardData.length === 0 ? (
+                      <div className="text-center py-8 text-slate-500 font-medium italic border-2 border-dashed border-slate-700 rounded-xl">
+                         Belum ada anggota yang mensinkronkan data bulan ini.
+                      </div>
+                   ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                         {leaderboardData.map((user, idx) => (
+                            <div key={idx} className={`flex items-center justify-between p-4 rounded-xl border transition-all hover:-translate-y-1 ${idx === 0 ? 'bg-gradient-to-r from-yellow-500/20 to-transparent border-yellow-500/30' : idx === 1 ? 'bg-gradient-to-r from-slate-300/10 to-transparent border-slate-400/20' : idx === 2 ? 'bg-gradient-to-r from-orange-600/20 to-transparent border-orange-500/20' : 'bg-white/5 border-white/10'}`}>
+                               <div className="flex items-center gap-4">
+                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg shadow-lg ${idx === 0 ? 'bg-yellow-400 text-yellow-900' : idx === 1 ? 'bg-slate-300 text-slate-800' : idx === 2 ? 'bg-orange-400 text-orange-900' : 'bg-slate-800 text-slate-400'}`}>
+                                     {idx + 1}
+                                  </div>
+                                  <span className={`font-bold text-lg truncate max-w-[150px] sm:max-w-[200px] ${idx === 0 ? 'text-yellow-400' : 'text-slate-200'}`}>{user.name}</span>
+                               </div>
+                               <div className="text-right">
+                                  <span className={`text-2xl font-black ${idx === 0 ? 'text-yellow-400' : 'text-white'}`}>{user.score}%</span>
+                                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Progress</p>
+                               </div>
+                            </div>
+                         ))}
+                      </div>
+                   )}
+                </div>
+             </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col">
-              {/* PERBAIKAN POIN 9: Filter & Sort Arsip Jurnal */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4 border-b border-slate-100 pb-4">
                  <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
                    <span className="w-3 h-3 rounded-full bg-orange-500 shrink-0"></span> Arsip Jurnal
@@ -835,7 +968,6 @@ export default function IbadahTracker() {
             
             <div className="w-full h-72 mb-8 bg-slate-50 rounded-xl p-4 border border-slate-100">
                <ResponsiveContainer width="100%" height="100%">
-                  {/* PERBAIKAN POIN 10: ComposedChart untuk Area & Trendline */}
                   <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                      <defs>
                         <linearGradient id="colorOrange" x1="0" y1="0" x2="0" y2="1">
@@ -856,7 +988,6 @@ export default function IbadahTracker() {
                         labelFormatter={(label) => `Tanggal ${label}`}
                      />
                      <Area type="monotone" dataKey="persentase" stroke="#f97316" strokeWidth={3} fillOpacity={1} fill="url(#colorOrange)" />
-                     {/* Garis Trend Progress */}
                      <Line type="linear" dataKey="trend" stroke="#3b82f6" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} />
                   </ComposedChart>
                </ResponsiveContainer>
