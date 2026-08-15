@@ -4,7 +4,8 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signO
 import { getFirestore, doc, setDoc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
 import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, Award, AlertOctagon, Search, Shield, Medal, Users } from 'lucide-react';
+// TAMBAHAN: Ikon Target (untuk Hari Ini)
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, Award, AlertOctagon, Search, Shield, Medal, Users, Target } from 'lucide-react';
 
 // --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
@@ -71,6 +72,9 @@ export default function IbadahTracker() {
   const [actModal, setActModal] = useState({ show: false, mode: 'add', id: null as number | null, name: '', time: '00:00' });
   
   const chartRef = useRef<HTMLDivElement>(null);
+  // OPTIMASI 3: Radar Scroll untuk HARI INI
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const todayColumnRef = useRef<HTMLTableCellElement>(null);
 
   // --- STATE SUPER ADMIN & KOMUNITAS ---
   const isAdmin = user?.email === 'coachardi1453@gmail.com';
@@ -80,8 +84,11 @@ export default function IbadahTracker() {
   
   const [myCommunity, setMyCommunity] = useState<string | null>(null);
   const [communityUsers, setCommunityUsers] = useState<any[]>([]);
+  
+  // OPTIMASI 2: Tab Navigasi Leaderboard
+  const [leaderboardTab, setLeaderboardTab] = useState<'monthly' | 'weekly' | 'yesterday'>('monthly');
 
-  // TAHAP 1: OTOMATISASI PENDAFTARAN IDENTITAS SAAT BUKA APLIKASI
+  // OTOMATISASI PENDAFTARAN & LOGIN TRACKING
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
@@ -89,10 +96,10 @@ export default function IbadahTracker() {
       
       if (currentUser) {
          try {
-            // Memaksa pengiriman Nama dan Email ke database setiap kali aplikasi dibuka
             await setDoc(doc(db, 'users', currentUser.uid), {
                displayName: currentUser.displayName,
-               email: currentUser.email
+               email: currentUser.email,
+               lastLogin: new Date().getTime() // OPTIMASI 1: Rekam jam login
             }, { merge: true });
          } catch (e) {
             console.error("Gagal sinkronisasi profil:", e);
@@ -122,7 +129,6 @@ export default function IbadahTracker() {
     }
   }, [hasUnsavedChanges, records, journals, activities]);
 
-  // Data Fetching Pribadi
   useEffect(() => {
     if (user) {
       const cacheKey = `tafkir_cache_${user.uid}`;
@@ -171,7 +177,6 @@ export default function IbadahTracker() {
     }
   }, [user]);
 
-  // Data Fetching ADMIN (Menarik semua user)
   useEffect(() => {
     if (isAdmin) {
       const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
@@ -189,7 +194,6 @@ export default function IbadahTracker() {
     }
   }, [isAdmin]);
 
-  // Data Fetching KOMUNITAS (Menarik data klasemen)
   useEffect(() => {
     if (myCommunity) {
       const q = query(collection(db, 'users'), where('community', '==', myCommunity));
@@ -202,7 +206,6 @@ export default function IbadahTracker() {
     }
   }, [myCommunity]);
 
-  // Fungsi Admin Mengubah Komunitas
   const handleUpdateCommunity = async (targetUid: string) => {
      const newComm = adminCommunityInputs[targetUid].trim();
      try {
@@ -228,6 +231,20 @@ export default function IbadahTracker() {
 
   const changeMonth = (offset: number) => {
     setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1));
+  };
+
+  // OPTIMASI 3: Fungsi Scroll Mulus ke Hari Ini
+  const scrollToToday = () => {
+      if (todayColumnRef.current && tableContainerRef.current) {
+         const container = tableContainerRef.current;
+         const target = todayColumnRef.current;
+         container.scrollTo({
+            left: target.offsetLeft - (container.clientWidth / 2) + (target.clientWidth / 2),
+            behavior: 'smooth'
+         });
+      } else {
+         showToast("Bulan ini tidak sedang ditampilkan.");
+      }
   };
 
   const daysInMonth = useMemo(() => {
@@ -434,15 +451,42 @@ export default function IbadahTracker() {
     if (!user) return;
     setIsSaving(true);
     
-    const monthKey = `${String(currentDate.getMonth() + 1).padStart(2, '0')}-${currentDate.getFullYear()}`;
-    const payload = { 
+    const today = new Date();
+    const isCurrentMonthView = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
+    
+    const payload: any = { 
        activities, 
        records, 
        journals,
        displayName: user.displayName,
        email: user.email,
-       [`score_${monthKey}`]: stats.donePercent 
+       lastActivity: new Date().getTime() // OPTIMASI 1: Rekam waktu aktif (simpan)
     };
+    
+    // OPTIMASI 2: Menyimpan 3 Skor Sekaligus jika sedang di bulan berjalan
+    if (isCurrentMonthView) {
+       payload.score_monthly = stats.donePercent;
+       
+       // Skor Pekan Ini
+       const wIdx = Math.floor((today.getDate() - 1) / 7);
+       const wData = stats.weeklyStats[wIdx];
+       payload.score_weekly = (wData && wData.expected > 0) ? Math.round((wData.done / wData.expected) * 100) : 0;
+       
+       // Skor Kemarin
+       const yest = new Date();
+       yest.setDate(yest.getDate() - 1);
+       const yestStr = getLocalDateStr(yest);
+       let yExpected = 0; let yDone = 0;
+       activities.forEach(a => {
+           const [h, m] = a.time.split(':').map(Number);
+           const targetTime = new Date(yest.getFullYear(), yest.getMonth(), yest.getDate(), h, m);
+           if (today.getTime() >= targetTime.getTime()) {
+              yExpected++;
+              if (records[`${yestStr}-${a.id}`]?.status === 'done') yDone++;
+           }
+       });
+       payload.score_yesterday = yExpected > 0 ? Math.round((yDone/yExpected)*100) : 0;
+    }
     
     localStorage.setItem(`tafkir_cache_${user.uid}`, JSON.stringify(payload));
     setHasUnsavedChanges(false); 
@@ -524,21 +568,23 @@ export default function IbadahTracker() {
     return rawData.map(d => ({ ...d, trend: Math.max(0, Math.min(100, Math.round(m * d.x + b))) }));
   }, [daysInMonth, records, activities]);
 
-  // Klasemen Real-Time Berdasarkan Komunitas
+  // OPTIMASI 2: Klasemen Real-Time Berdasarkan Tab yang Dipilih
   const leaderboardData = useMemo(() => {
      if (!myCommunity || communityUsers.length === 0) return [];
-     const monthKey = `${String(currentDate.getMonth() + 1).padStart(2, '0')}-${currentDate.getFullYear()}`;
+     
+     let scoreKey = 'score_monthly';
+     if (leaderboardTab === 'weekly') scoreKey = 'score_weekly';
+     if (leaderboardTab === 'yesterday') scoreKey = 'score_yesterday';
      
      return communityUsers
         .map(u => ({
            name: u.displayName || 'Anonim',
-           score: u[`score_${monthKey}`] || 0
+           score: u[scoreKey] || 0
         }))
         .filter(u => u.score > 0) 
         .sort((a,b) => b.score - a.score)
         .slice(0, 5); 
-  }, [communityUsers, currentDate, myCommunity]);
-
+  }, [communityUsers, myCommunity, leaderboardTab]);
 
   if (isInitializing) return (
      <div className="fixed inset-0 w-full h-full bg-slate-50 flex items-center justify-center text-orange-500 font-bold z-50">
@@ -571,33 +617,48 @@ export default function IbadahTracker() {
         {/* PANEL SUPER ADMIN (Modal) */}
         {showAdminPanel && isAdmin && (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
-              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-4xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
+              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-5xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
                  <button onClick={() => setShowAdminPanel(false)} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
                  <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-3"><Shield className="text-blue-500"/> Super Admin Dashboard</h2>
-                 <p className="text-sm text-slate-500 mb-8 border-b border-slate-100 pb-4">Kelola akses dan pengelompokan komunitas untuk Gamifikasi (Fastabiqul Khairat).</p>
+                 <p className="text-sm text-slate-500 mb-8 border-b border-slate-100 pb-4">Pantau aktivitas anggota dan kelompokkan komunitas Gamifikasi.</p>
                  
-                 <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
+                 <div className="overflow-x-auto pb-4">
+                    <table className="w-full text-left text-sm min-w-[600px]">
                        <thead className="bg-slate-50 text-slate-600">
                           <tr>
                              <th className="p-4 font-bold rounded-tl-xl">Nama Pengguna</th>
-                             <th className="p-4 font-bold">Email Google</th>
+                             <th className="p-4 font-bold">Email</th>
+                             {/* OPTIMASI 1: Kolom Status Aktif */}
+                             <th className="p-4 font-bold text-center">Status (Terakhir Aktif)</th>
                              <th className="p-4 font-bold">Nama Komunitas</th>
                              <th className="p-4 font-bold text-center rounded-tr-xl">Aksi</th>
                           </tr>
                        </thead>
                        <tbody className="divide-y divide-slate-100">
-                          {allUsers.map((u) => (
+                          {allUsers.map((u) => {
+                             // Hitung Status Aktif
+                             let actStatus = <span className="text-slate-400 text-xs font-medium italic">Belum ada laporan</span>;
+                             if (u.lastActivity) {
+                                const diffDays = Math.floor((new Date().getTime() - u.lastActivity) / (1000 * 60 * 60 * 24));
+                                if (diffDays > 2) {
+                                   actStatus = <span className="text-red-600 font-bold bg-red-100 px-2 py-1 rounded text-[10px] uppercase">⚠️ Pasif {diffDays} Hari</span>;
+                                } else {
+                                   actStatus = <span className="text-green-600 font-bold bg-green-100 px-2 py-1 rounded text-[10px] uppercase">🟢 Aktif</span>;
+                                }
+                             }
+
+                             return (
                              <tr key={u.id} className="hover:bg-slate-50/50">
                                 <td className="p-4 font-bold text-slate-800">{u.displayName || 'Anonim'}</td>
-                                <td className="p-4 text-slate-500">{u.email || '-'}</td>
+                                <td className="p-4 text-slate-500 text-xs">{u.email || '-'}</td>
+                                <td className="p-4 text-center">{actStatus}</td>
                                 <td className="p-4">
                                    <input 
                                       type="text" 
                                       placeholder="Kosong"
                                       value={adminCommunityInputs[u.id] || ''} 
                                       onChange={(e) => setAdminCommunityInputs({...adminCommunityInputs, [u.id]: e.target.value})}
-                                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none"
+                                      className="w-full min-w-[120px] bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none"
                                    />
                                 </td>
                                 <td className="p-4 text-center">
@@ -607,7 +668,7 @@ export default function IbadahTracker() {
                                    >Simpan</button>
                                 </td>
                              </tr>
-                          ))}
+                          )})}
                        </tbody>
                     </table>
                  </div>
@@ -720,7 +781,6 @@ export default function IbadahTracker() {
                  </div>
                </div>
                
-               {/* TOMBOL SUPER ADMIN */}
                {isAdmin && (
                   <button onClick={() => setShowAdminPanel(true)} className="ml-1 bg-blue-100 text-blue-600 hover:bg-blue-200 p-2 rounded-lg transition-colors" title="Super Admin Dashboard">
                      <Shield size={16}/>
@@ -751,17 +811,22 @@ export default function IbadahTracker() {
                      </button>
                   </div>
                   
-                  <div className="flex items-center gap-4 bg-white border border-slate-200 px-2 py-1 rounded-lg shadow-sm">
+                  <div className="flex items-center gap-2 sm:gap-4 bg-white border border-slate-200 px-2 py-1 rounded-lg shadow-sm">
                      <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><ChevronLeft size={20}/></button>
-                     <div className="w-40 text-center font-bold text-slate-700">
+                     <div className="w-32 sm:w-40 text-center font-bold text-slate-700 text-sm sm:text-base">
                         {MONTH_NAMES[currentDate.getMonth()]} {currentDate.getFullYear()}
                      </div>
                      <button onClick={() => changeMonth(1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><ChevronRight size={20}/></button>
+                     
+                     {/* OPTIMASI 3: Tombol HARI INI */}
+                     <button onClick={scrollToToday} className="flex items-center gap-1 bg-blue-50 text-blue-600 px-2 sm:px-3 py-1.5 rounded text-[10px] sm:text-xs font-bold hover:bg-blue-100 transition-colors border border-blue-200 border-l-2 border-l-blue-400">
+                        👉 <span className="hidden sm:block">HARI INI</span>
+                     </button>
                   </div>
                </div>
             </div>
             
-            <div className="overflow-x-auto pb-4">
+            <div className="overflow-x-auto pb-4" ref={tableContainerRef}>
               <table className="w-full text-sm">
                 <thead className="bg-slate-100 border-b border-slate-200">
                   <tr>
@@ -771,7 +836,7 @@ export default function IbadahTracker() {
                     {daysInMonth.map(d => {
                       const isActuallyToday = getLocalDateStr(d) === getLocalDateStr(new Date());
                       return (
-                         <th key={d.toISOString()} className={`p-3 text-center font-semibold min-w-[40px] transition-colors ${isActuallyToday ? 'bg-orange-100 text-orange-700 border-b-2 border-orange-500' : 'text-slate-600'}`}>
+                         <th key={d.toISOString()} ref={isActuallyToday ? todayColumnRef : null} className={`p-3 text-center font-semibold min-w-[40px] transition-colors ${isActuallyToday ? 'bg-orange-100 text-orange-700 border-b-2 border-orange-500' : 'text-slate-600'}`}>
                             {isActuallyToday ? (
                                <div className="flex flex-col items-center">
                                   <span className="text-[9px] uppercase tracking-widest mb-0.5 font-black">Hari Ini</span>
@@ -870,27 +935,31 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          {/* PANEL GAMIFIKASI GLOBAL (LEADERBOARD) */}
+          {/* PANEL GAMIFIKASI GLOBAL DENGAN 3 TAB */}
           {myCommunity && (
              <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl shadow-xl p-6 md:p-8 border border-slate-700 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none"></div>
                 
-                <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 border-b border-slate-700 pb-4">
+                <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 border-b border-slate-700 pb-4">
                    <div>
                       <h2 className="text-2xl font-black text-white flex items-center gap-3">
                          <Medal className="text-yellow-400" size={28}/> Fastabiqul Khairat
                       </h2>
                       <p className="text-slate-400 text-sm mt-1 font-medium flex items-center gap-2"><Users size={16}/> Komunitas: <span className="text-yellow-400">{myCommunity}</span></p>
                    </div>
-                   <div className="bg-slate-800/50 border border-slate-600 px-4 py-2 rounded-xl text-xs text-slate-300 font-bold uppercase tracking-widest">
-                      Bulan {MONTH_NAMES[currentDate.getMonth()]}
+                   
+                   {/* OPTIMASI 2: Tombol Tab Klasemen */}
+                   <div className="flex bg-slate-800/80 p-1 rounded-xl border border-slate-600 w-full sm:w-auto overflow-x-auto shadow-inner">
+                      <button onClick={()=>setLeaderboardTab('yesterday')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${leaderboardTab==='yesterday' ? 'bg-yellow-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>Hari Kemarin</button>
+                      <button onClick={()=>setLeaderboardTab('weekly')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${leaderboardTab==='weekly' ? 'bg-yellow-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>Pekan Ini</button>
+                      <button onClick={()=>setLeaderboardTab('monthly')} className={`px-4 py-2 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${leaderboardTab==='monthly' ? 'bg-yellow-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>Bulan Ini</button>
                    </div>
                 </div>
 
                 <div className="relative z-10">
                    {leaderboardData.length === 0 ? (
                       <div className="text-center py-8 text-slate-500 font-medium italic border-2 border-dashed border-slate-700 rounded-xl">
-                         Belum ada anggota yang mensinkronkan data bulan ini.
+                         Belum ada anggota yang mensinkronkan data untuk kategori ini.
                       </div>
                    ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
