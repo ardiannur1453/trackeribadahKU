@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
-// TAMBAHAN: Import fitur query database untuk Leaderboard & Admin
 import { getFirestore, doc, setDoc, onSnapshot, collection, query, where } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
 import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-// TAMBAHAN: Import Ikon Shield (Admin), Medal (Leaderboard), Users
 import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, Award, AlertOctagon, Search, Shield, Medal, Users } from 'lucide-react';
 
 // --- KONFIGURASI FIREBASE ---
@@ -83,10 +81,23 @@ export default function IbadahTracker() {
   const [myCommunity, setMyCommunity] = useState<string | null>(null);
   const [communityUsers, setCommunityUsers] = useState<any[]>([]);
 
+  // TAHAP 1: OTOMATISASI PENDAFTARAN IDENTITAS SAAT BUKA APLIKASI
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       setIsInitializing(false);
+      
+      if (currentUser) {
+         try {
+            // Memaksa pengiriman Nama dan Email ke database setiap kali aplikasi dibuka
+            await setDoc(doc(db, 'users', currentUser.uid), {
+               displayName: currentUser.displayName,
+               email: currentUser.email
+            }, { merge: true });
+         } catch (e) {
+            console.error("Gagal sinkronisasi profil:", e);
+         }
+      }
     });
     return () => unsubscribe();
   }, []);
@@ -140,11 +151,10 @@ export default function IbadahTracker() {
             if (data.activities) setActivities(data.activities);
             if (data.records) setRecords(data.records);
             if (data.journals) setJournals(data.journals);
-            if (data.community) setMyCommunity(data.community); // Ambil status komunitas kita
+            if (data.community) setMyCommunity(data.community); 
             localStorage.setItem(cacheKey, JSON.stringify(data));
          } else {
-            // Jika user baru pertama login, buat profil awal agar terbaca Admin
-            setDoc(userRef, { displayName: user.displayName, email: user.email, activities: DEFAULT_ACTIVITIES }, { merge: true });
+            setDoc(userRef, { activities: DEFAULT_ACTIVITIES }, { merge: true });
          }
          setIsSyncing(false);
          if (syncStatus === 'loading') {
@@ -179,7 +189,7 @@ export default function IbadahTracker() {
     }
   }, [isAdmin]);
 
-  // Data Fetching KOMUNITAS (Menarik data klasemen kawan se-komunitas)
+  // Data Fetching KOMUNITAS (Menarik data klasemen)
   useEffect(() => {
     if (myCommunity) {
       const q = query(collection(db, 'users'), where('community', '==', myCommunity));
@@ -199,7 +209,7 @@ export default function IbadahTracker() {
         await setDoc(doc(db, 'users', targetUid), { community: newComm }, { merge: true });
         showToast("Komunitas berhasil diperbarui!");
      } catch (e) {
-        showToast("Gagal memperbarui komunitas.");
+        showToast("Gagal memperbarui komunitas. Cek koneksi.");
      }
   };
 
@@ -339,7 +349,6 @@ export default function IbadahTracker() {
     setHasUnsavedChanges(true); 
   };
 
-  // Kalkulasi Statistik Inti (Digunakan sebelum saveToServer untuk mengambil donePercent)
   const calcStats = () => {
     const actData: Record<number, { done: number, missed: number, onTime: number, late: number }> = {};
     activities.forEach(a => actData[a.id] = { done: 0, missed: 0, onTime: 0, late: 0 });
@@ -425,7 +434,6 @@ export default function IbadahTracker() {
     if (!user) return;
     setIsSaving(true);
     
-    // PEMBARUAN: Memasukkan Skor Bulanan ke Profil Pengguna saat disimpan
     const monthKey = `${String(currentDate.getMonth() + 1).padStart(2, '0')}-${currentDate.getFullYear()}`;
     const payload = { 
        activities, 
@@ -433,7 +441,7 @@ export default function IbadahTracker() {
        journals,
        displayName: user.displayName,
        email: user.email,
-       [`score_${monthKey}`]: stats.donePercent // Merekam skor bulan ini ke database
+       [`score_${monthKey}`]: stats.donePercent 
     };
     
     localStorage.setItem(`tafkir_cache_${user.uid}`, JSON.stringify(payload));
@@ -526,9 +534,9 @@ export default function IbadahTracker() {
            name: u.displayName || 'Anonim',
            score: u[`score_${monthKey}`] || 0
         }))
-        .filter(u => u.score > 0) // Sembunyikan yang belum mengisi sama sekali
+        .filter(u => u.score > 0) 
         .sort((a,b) => b.score - a.score)
-        .slice(0, 5); // Ambil Top 5
+        .slice(0, 5); 
   }, [communityUsers, currentDate, myCommunity]);
 
 
@@ -582,7 +590,7 @@ export default function IbadahTracker() {
                           {allUsers.map((u) => (
                              <tr key={u.id} className="hover:bg-slate-50/50">
                                 <td className="p-4 font-bold text-slate-800">{u.displayName || 'Anonim'}</td>
-                                <td className="p-4 text-slate-500">{u.email}</td>
+                                <td className="p-4 text-slate-500">{u.email || '-'}</td>
                                 <td className="p-4">
                                    <input 
                                       type="text" 
@@ -688,6 +696,7 @@ export default function IbadahTracker() {
 
         <div className="max-w-7xl mx-auto space-y-8 pb-16">
           
+          {/* Header */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 flex flex-row justify-between items-center gap-4 relative overflow-hidden">
             <div className="flex items-center gap-3 sm:gap-4">
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md shrink-0">
@@ -861,7 +870,7 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          {/* PANEL GAMIFIKASI GLOBAL (LEADERBOARD) - Hanya Muncul Jika Punya Komunitas */}
+          {/* PANEL GAMIFIKASI GLOBAL (LEADERBOARD) */}
           {myCommunity && (
              <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl shadow-xl p-6 md:p-8 border border-slate-700 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none"></div>
