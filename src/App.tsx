@@ -3,8 +3,10 @@ import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, Award, AlertOctagon } from 'lucide-react';
+// PERBAIKAN POIN 10: Mengganti AreaChart menjadi ComposedChart untuk menggabungkan Area dan Line (Trendline)
+import { ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+// PERBAIKAN POIN 9: Menambahkan ikon Search
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, Award, AlertOctagon, Search } from 'lucide-react';
 
 // --- KONFIGURASI FIREBASE ---
 const firebaseConfig = {
@@ -28,7 +30,6 @@ const getLocalDateStr = (d: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-// PERBAIKAN POIN 2 & 3: Default Aktivitas Diperbarui
 const DEFAULT_ACTIVITIES = [
   { id: 1, name: 'Shalat Tahajud Berjamaah', time: '03:00' },
   { id: 2, name: 'Shalat Subuh Berjamaah', time: '04:30' },
@@ -37,7 +38,7 @@ const DEFAULT_ACTIVITIES = [
   { id: 5, name: 'Shalat Dzuhur Berjamaah', time: '12:00' },
   { id: 6, name: 'Shalat Ashar Berjamaah', time: '15:15' },
   { id: 7, name: 'Shalat Maghrib Berjamaah', time: '18:00' },
-  { id: 10, name: 'Tilawah Al-Quran', time: '18:15' }, // Diubah ke 18:15 agar berada di antara Maghrib & Dzikir Petang
+  { id: 10, name: 'Tilawah Al-Quran', time: '18:15' }, 
   { id: 8, name: 'Dzikir Petang', time: '18:30' },
   { id: 9, name: 'Shalat Isya Berjamaah', time: '19:15' }
 ];
@@ -60,6 +61,10 @@ export default function IbadahTracker() {
   const [activities, setActivities] = useState(DEFAULT_ACTIVITIES);
   const [records, setRecords] = useState<any>({});
   const [journals, setJournals] = useState<any[]>([]);
+  
+  // Fitur 9: State untuk Pencarian dan Pengurutan Jurnal
+  const [journalSearch, setJournalSearch] = useState('');
+  const [journalSort, setJournalSort] = useState<'newest' | 'oldest' | 'az' | 'za'>('newest');
   
   const [toast, setToast] = useState('');
   const [activeJournal, setActiveJournal] = useState<any>(null);
@@ -219,6 +224,27 @@ export default function IbadahTracker() {
     return percentage >= 0.5; 
   };
 
+  // PERBAIKAN POIN 8: Fungsi Kalkulasi Persentase Harian untuk Footer Tabel
+  const getDailyPercentage = (day: Date) => {
+     const today = new Date();
+     const dateStr = getLocalDateStr(day);
+     let expected = 0;
+     let done = 0;
+
+     activities.forEach(a => {
+        const [h, m] = a.time.split(':').map(Number);
+        const targetTime = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m);
+        // Hanya hitung jika jadwalnya SUDAH berlalu (bisa dinilai)
+        if (today.getTime() >= targetTime.getTime()) {
+           expected++;
+           if (records[`${dateStr}-${a.id}`]?.status === 'done') done++;
+        }
+     });
+
+     if (expected === 0) return "-";
+     return `${Math.round((done / expected) * 100)}%`;
+  };
+
   const handleRecord = (day: Date, actId: number, actTime: string, currentStatus: string | undefined) => {
     const now = new Date();
     const [hours, minutes] = actTime.split(':').map(Number);
@@ -306,7 +332,22 @@ export default function IbadahTracker() {
     showToast("Jurnal telah disematkan. Klik Simpan Perubahan!");
   };
 
-  // PERBAIKAN POIN 1: Ekspor Laporan Dinamis & Tanpa Tombol Mengganggu
+  // PERBAIKAN POIN 9: Fungsi Pengurutan Jurnal
+  const filteredAndSortedJournals = useMemo(() => {
+     let result = journals.filter(j => 
+        j.title.toLowerCase().includes(journalSearch.toLowerCase()) || 
+        j.content.toLowerCase().includes(journalSearch.toLowerCase())
+     );
+     
+     return result.sort((a, b) => {
+        if (journalSort === 'newest') return new Date(b.date).getTime() - new Date(a.date).getTime();
+        if (journalSort === 'oldest') return new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (journalSort === 'az') return a.title.localeCompare(b.title);
+        if (journalSort === 'za') return b.title.localeCompare(a.title);
+        return 0;
+     });
+  }, [journals, journalSearch, journalSort]);
+
   const exportChart = async () => {
     if (chartRef.current) {
       const canvas = await html2canvas(chartRef.current, { backgroundColor: '#ffffff', scale: 2 });
@@ -321,18 +362,37 @@ export default function IbadahTracker() {
     }
   };
 
+  // PERBAIKAN POIN 10: Kalkulasi Regresi Linier (Trendline)
   const chartData = useMemo(() => {
-    return daysInMonth.map(d => {
+    const rawData = daysInMonth.map((d, i) => {
       const dateStr = getLocalDateStr(d);
       let doneCount = 0;
       activities.forEach(a => {
         if (records[`${dateStr}-${a.id}`]?.status === 'done') doneCount++;
       });
-      return {
-        tanggal: d.getDate().toString(),
-        persentase: activities.length ? Math.round((doneCount / activities.length) * 100) : 0
-      };
+      const pct = activities.length ? Math.round((doneCount / activities.length) * 100) : 0;
+      return { x: i + 1, tanggal: d.getDate().toString(), persentase: pct };
     });
+
+    // Menghitung Regresi Linier untuk Garis Trend (y = mx + b)
+    const n = rawData.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+    rawData.forEach(d => {
+       sumX += d.x;
+       sumY += d.persentase;
+       sumXY += d.x * d.persentase;
+       sumX2 += d.x * d.x;
+    });
+
+    // Mencegah error pembagian dengan nol
+    const denominator = (n * sumX2 - sumX * sumX);
+    const m = denominator === 0 ? 0 : (n * sumXY - sumX * sumY) / denominator;
+    const b = (sumY - m * sumX) / n;
+
+    return rawData.map(d => ({
+      ...d,
+      trend: Math.max(0, Math.min(100, Math.round(m * d.x + b))) // Mengunci garis agar tidak tembus -0 atau 100+
+    }));
   }, [daysInMonth, records, activities]);
 
   const calcStats = () => {
@@ -405,7 +465,6 @@ export default function IbadahTracker() {
     const donePercent = totalFilled ? Math.round((totalDone / totalFilled) * 100) : 0;
 
     let sortedFreq = activities.map(a => ({ name: a.name, ...actData[a.id] })).filter(a => (a.done + a.missed) > 0);
-    // PERBAIKAN POIN 4: Mengambil 3 Teratas Konsisten & Sering Terlewat
     let top3Freq = [...sortedFreq].sort((a,b) => b.done - a.done).slice(0, 3);
     let top3Missed = [...sortedFreq].sort((a,b) => b.missed - a.missed).slice(0, 3);
 
@@ -433,6 +492,7 @@ export default function IbadahTracker() {
      </div>
   );
 
+  // PERBAIKAN POIN 1: Identitas Halaman Login
   if (!user) {
     return (
       <div className="fixed inset-0 w-full h-full overflow-y-auto bg-[#111111] flex flex-col items-center justify-center p-4 z-50">
@@ -441,8 +501,8 @@ export default function IbadahTracker() {
           <div className="w-24 h-24 mx-auto mb-6 bg-white rounded-full border-4 border-orange-500 flex items-center justify-center shadow-[0_0_20px_rgba(249,115,22,0.4)]">
              <img src="/logo.png" alt="Logo Tafkir Corp" className="w-[75%] h-[75%] object-contain" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">Tafkir Corp</h1>
-          <p className="text-orange-500 text-xs tracking-widest uppercase mb-8">Elevate The Level of Thinking</p>
+          <h1 className="text-3xl font-bold text-white mb-2">Tracker IbadahKU</h1>
+          <p className="text-orange-500 text-xs tracking-widest uppercase mb-8">by TafkirCorp</p>
           <button onClick={() => signInWithPopup(auth, new GoogleAuthProvider())} className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-lg transition-all shadow-lg hover:shadow-orange-500/30">
             Masuk dengan Google
           </button>
@@ -536,6 +596,7 @@ export default function IbadahTracker() {
 
         <div className="max-w-7xl mx-auto space-y-8 pb-16">
           
+          {/* Header */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 flex flex-row justify-between items-center gap-4 relative overflow-hidden">
             <div className="flex items-center gap-3 sm:gap-4">
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md shrink-0">
@@ -550,11 +611,12 @@ export default function IbadahTracker() {
             <div className="flex items-center gap-2 sm:gap-4 bg-slate-100 px-3 py-2 rounded-xl border border-slate-200">
                <div className="text-right flex flex-col justify-center">
                  <div className="text-sm font-semibold text-slate-800 max-w-[80px] sm:max-w-none truncate">{user.displayName?.split(' ')[0]}</div>
+                 {/* PERBAIKAN POIN 2: Sinkronisasi Teks */}
                  <div className="text-[10px] font-medium flex items-center gap-1 justify-end">
                     {isSyncing ? (
-                       <span className="text-blue-500 flex items-center gap-1"><RefreshCw size={10} className="animate-spin"/> Sync</span>
+                       <span className="text-blue-500 flex items-center gap-1"><RefreshCw size={10} className="animate-spin"/> Synchronizing...</span>
                     ) : (
-                       <span className="text-green-600 flex items-center gap-1"><Zap size={10}/> Aman</span>
+                       <span className="text-green-600 flex items-center gap-1"><Zap size={10}/> Synchronized</span>
                     )}
                  </div>
                </div>
@@ -564,31 +626,46 @@ export default function IbadahTracker() {
             </div>
           </div>
 
+          {/* Tabel Utama */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden relative">
-            <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col md:flex-row justify-between items-center gap-4">
-               <div className="flex items-center justify-between w-full md:w-auto gap-4">
-                  <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                     <span className="w-3 h-3 rounded-full bg-orange-500"></span> Tabel Pelaporan
-                  </h2>
-                  <button onClick={() => setActModal({ show: true, mode: 'add', id: null, name: '', time: '00:00' })} className="flex items-center gap-1 bg-white border border-orange-200 px-3 py-1.5 rounded-lg text-sm font-bold text-orange-600 hover:bg-orange-50 transition-colors shadow-sm">
-                     <Plus size={16}/> Tambah
-                  </button>
-               </div>
-               
-               <div className="flex items-center gap-4 bg-white border border-slate-200 px-2 py-1 rounded-lg shadow-sm">
-                  <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><ChevronLeft size={20}/></button>
-                  <div className="w-40 text-center font-bold text-slate-700">
-                     {MONTH_NAMES[currentDate.getMonth()]} {currentDate.getFullYear()}
+            <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-col items-center gap-4">
+               {/* PERBAIKAN POIN 5: Total Progress di Atas Bulan */}
+               <div className="w-full flex justify-center mb-1">
+                  <div className={`px-4 py-1.5 rounded-full text-sm font-bold shadow-sm border ${stats.donePercent >= 50 ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>
+                     Total Progress Bulan Ini: {stats.donePercent}%
                   </div>
-                  <button onClick={() => changeMonth(1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><ChevronRight size={20}/></button>
+               </div>
+
+               <div className="flex flex-col md:flex-row justify-between w-full gap-4 items-center">
+                  <div className="flex items-center justify-between w-full md:w-auto gap-4">
+                     <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        {/* PERBAIKAN POIN 3: Judul Tabel */}
+                        <span className="w-3 h-3 rounded-full bg-orange-500"></span> Tabel Hisab Pribadi
+                     </h2>
+                     {/* PERBAIKAN POIN 4: Nama Tombol Tambah */}
+                     <button onClick={() => setActModal({ show: true, mode: 'add', id: null, name: '', time: '00:00' })} className="flex items-center gap-1 bg-white border border-orange-200 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold text-orange-600 hover:bg-orange-50 transition-colors shadow-sm whitespace-nowrap">
+                        <Plus size={16}/> <span className="hidden sm:block">Tambah Ibadah/Aktivitas Positif KU</span><span className="sm:hidden">Tambah</span>
+                     </button>
+                  </div>
+                  
+                  <div className="flex items-center gap-4 bg-white border border-slate-200 px-2 py-1 rounded-lg shadow-sm">
+                     <button onClick={() => changeMonth(-1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><ChevronLeft size={20}/></button>
+                     <div className="w-40 text-center font-bold text-slate-700">
+                        {MONTH_NAMES[currentDate.getMonth()]} {currentDate.getFullYear()}
+                     </div>
+                     <button onClick={() => changeMonth(1)} className="p-1 hover:bg-slate-100 rounded text-slate-500"><ChevronRight size={20}/></button>
+                  </div>
                </div>
             </div>
             
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto pb-4">
               <table className="w-full text-sm">
                 <thead className="bg-slate-100 border-b border-slate-200">
                   <tr>
-                    <th className="text-left text-slate-700 font-bold p-4 sticky left-0 bg-slate-100 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[240px]">Opsi & Aktivitas</th>
+                    {/* PERBAIKAN POIN 6 & 11: Header Kolom & Lebar Kolom Mobile */}
+                    <th className="text-left text-slate-700 font-bold p-3 sm:p-4 sticky left-0 bg-slate-100 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[140px] sm:min-w-[240px] max-w-[160px] sm:max-w-none">
+                       Ibadah & Aktivitas Positif KU
+                    </th>
                     {daysInMonth.map(d => {
                       const isActuallyToday = getLocalDateStr(d) === getLocalDateStr(new Date());
                       return (
@@ -610,18 +687,28 @@ export default function IbadahTracker() {
                     return (
                     <tr key={act.id} className={idx % 2 === 0 ? 'bg-white hover:bg-orange-50/50' : 'bg-slate-50 hover:bg-orange-50/50'}>
                       
-                      <td className="p-3 font-medium sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-100" style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
-                        <div className="flex items-center gap-3">
-                           <div className="flex flex-col gap-1 shrink-0">
+                      {/* CSS Kolom Sticky Mobile (Sempit namun fungsional) */}
+                      <td className="p-2 sm:p-3 font-medium sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] border-r border-slate-100 whitespace-normal sm:whitespace-nowrap" style={{ backgroundColor: idx % 2 === 0 ? '#ffffff' : '#f8fafc' }}>
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3">
+                           <div className="flex sm:flex-col gap-1 shrink-0">
                               <button onClick={() => setActModal({ show: true, mode: 'edit', id: act.id, name: act.name, time: act.time })} className="p-1 bg-slate-100 border border-slate-200 text-slate-500 hover:text-blue-600 hover:bg-blue-50 hover:border-blue-200 rounded transition-colors" title="Edit Aktivitas"><Edit3 size={14}/></button>
                               <button onClick={() => deleteActivity(act.id)} className="p-1 bg-slate-100 border border-slate-200 text-slate-500 hover:text-red-600 hover:bg-red-50 hover:border-red-200 rounded transition-colors" title="Hapus Aktivitas"><Trash2 size={14}/></button>
                            </div>
-                           <div className="flex flex-col items-start leading-tight">
-                              <div className="flex items-center gap-2">
-                                <span className={!isSafe ? 'text-red-600 font-bold' : 'text-slate-800'}>{act.name}</span>
-                                {!isSafe && <AlertTriangle size={14} className="text-red-500" title="Di bawah target harian (< 50%)" />}
+                           <div className="flex flex-col items-start leading-tight min-w-0">
+                              <div className="flex items-center gap-1 sm:gap-2 flex-wrap sm:flex-nowrap">
+                                <span className={`text-xs sm:text-sm truncate sm:overflow-visible break-words ${!isSafe ? 'text-red-600 font-bold' : 'text-slate-800'}`}>{act.name}</span>
+                                {/* PERBAIKAN POIN 7: Tooltip Khusus Tanda Seru Merah */}
+                                {!isSafe && (
+                                   <div className="relative group/alert cursor-help">
+                                      <AlertTriangle size={14} className="text-red-500 shrink-0" />
+                                      <div className="absolute hidden group-hover/alert:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-slate-900 text-white text-[10px] sm:text-xs text-center p-2 rounded shadow-xl z-50 pointer-events-none leading-relaxed">
+                                         Pelaksanaan di bawah 50% dari target hari yang telah berlalu
+                                         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-900 rotate-45"></div>
+                                      </div>
+                                   </div>
+                                )}
                               </div>
-                              <span className="text-[10px] text-orange-600 font-bold bg-orange-100 px-1.5 py-0.5 rounded mt-1">{act.time}</span>
+                              <span className="text-[9px] sm:text-[10px] text-orange-600 font-bold bg-orange-100 px-1.5 py-0.5 rounded mt-1 shrink-0">{act.time}</span>
                            </div>
                         </div>
                       </td>
@@ -633,11 +720,11 @@ export default function IbadahTracker() {
                         return (
                           <td key={key} className={`p-2 text-center relative group cursor-pointer border-r border-slate-100/50 ${isActuallyToday ? 'bg-orange-50/40' : ''}`} onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
                             {rec?.status === 'done' ? (
-                               <div className="w-7 h-7 mx-auto bg-green-100 rounded flex items-center justify-center border border-green-200"><Check className="text-green-600" size={16} /></div>
+                               <div className="w-6 h-6 sm:w-7 sm:h-7 mx-auto bg-green-100 rounded flex items-center justify-center border border-green-200"><Check className="text-green-600" size={14} /></div>
                             ) : rec?.status === 'missed' ? (
-                               <div className="w-7 h-7 mx-auto bg-red-100 rounded flex items-center justify-center border border-red-200"><X className="text-red-600" size={16} /></div>
+                               <div className="w-6 h-6 sm:w-7 sm:h-7 mx-auto bg-red-100 rounded flex items-center justify-center border border-red-200"><X className="text-red-600" size={14} /></div>
                             ) : (
-                               <div className="w-7 h-7 mx-auto rounded bg-slate-100 border border-slate-200 hover:border-orange-300 transition-colors" />
+                               <div className="w-6 h-6 sm:w-7 sm:h-7 mx-auto rounded bg-slate-100 border border-slate-200 hover:border-orange-300 transition-colors" />
                             )}
                             
                             {rec && (
@@ -667,21 +754,50 @@ export default function IbadahTracker() {
                     </tr>
                   )})}
                 </tbody>
+                {/* PERBAIKAN POIN 8: Ketercapaian Harian (%) */}
+                <tfoot>
+                  <tr className="bg-slate-50 border-t-2 border-slate-200">
+                    <td className="p-3 sm:p-4 text-right font-bold text-slate-700 sticky left-0 z-20 bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-xs sm:text-sm">
+                       Ketercapaian Harian:
+                    </td>
+                    {daysInMonth.map(d => (
+                       <td key={d.toISOString()} className="p-2 text-center font-bold text-slate-600 border-r border-slate-100/50 text-xs sm:text-sm">
+                          {getDailyPercentage(d)}
+                       </td>
+                    ))}
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 flex flex-col">
-              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2 border-b border-slate-100 pb-2">
-                <span className="w-3 h-3 rounded-full bg-orange-500"></span> Arsip Jurnal
-              </h3>
+              {/* PERBAIKAN POIN 9: Filter & Sort Arsip Jurnal */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4 border-b border-slate-100 pb-4">
+                 <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                   <span className="w-3 h-3 rounded-full bg-orange-500 shrink-0"></span> Arsip Jurnal
+                 </h3>
+                 <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="relative w-full sm:w-32">
+                       <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+                       <input type="text" placeholder="Cari..." value={journalSearch} onChange={(e) => setJournalSearch(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-7 pr-2 py-1.5 text-xs focus:ring-1 focus:ring-orange-500 outline-none" />
+                    </div>
+                    <select value={journalSort} onChange={(e: any) => setJournalSort(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-600 focus:ring-1 focus:ring-orange-500 outline-none cursor-pointer">
+                       <option value="newest">Terbaru</option>
+                       <option value="oldest">Terlama</option>
+                       <option value="az">A - Z</option>
+                       <option value="za">Z - A</option>
+                    </select>
+                 </div>
+              </div>
+
               <div className="space-y-3 flex-1 overflow-y-auto max-h-[300px] pr-2">
-                {journals.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">Belum ada jurnal tersimpan.</p> : journals.map(j => (
+                {filteredAndSortedJournals.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">Tidak ada jurnal ditemukan.</p> : filteredAndSortedJournals.map(j => (
                   <div key={j.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex justify-between items-start group hover:border-orange-300 transition-colors">
                     <div className="truncate pr-2">
                       <p className="font-bold text-slate-700 truncate">{j.title}</p>
-                      <p className="text-xs text-slate-500 mt-1">{new Date(j.date).toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</p>
+                      <p className="text-xs text-slate-500 mt-1">{new Date(j.date).toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'})}</p>
                     </div>
                     <div className="flex gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
                       <button onClick={() => { setActiveJournal(j); setIsViewModalOpen(true); }} className="p-1 hover:bg-slate-200 rounded text-blue-600"><Eye size={16} /></button>
@@ -712,7 +828,6 @@ export default function IbadahTracker() {
                    <h2 className="text-xl font-bold text-slate-800 border-l-4 border-orange-500 pl-4">Analisa & Grafik Progres</h2>
                    <p className="text-sm text-slate-500 mt-2 pl-4 font-medium">Laporan Aktivitas: <span className="font-bold text-slate-700">{user.displayName}</span></p>
                </div>
-               {/* Atribut data-html2canvas-ignore="true" akan menyembunyikan tombol saat diekspor */}
                <button data-html2canvas-ignore="true" onClick={exportChart} className="flex items-center gap-2 bg-orange-50 hover:bg-orange-100 text-orange-600 px-4 py-2 rounded-xl text-sm font-bold border border-orange-200 transition-colors w-full sm:w-auto justify-center">
                  <Download size={16} /> Ekspor Laporan
                </button>
@@ -720,7 +835,8 @@ export default function IbadahTracker() {
             
             <div className="w-full h-72 mb-8 bg-slate-50 rounded-xl p-4 border border-slate-100">
                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  {/* PERBAIKAN POIN 10: ComposedChart untuk Area & Trendline */}
+                  <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                      <defs>
                         <linearGradient id="colorOrange" x1="0" y1="0" x2="0" y2="1">
                            <stop offset="5%" stopColor="#f97316" stopOpacity={0.3}/>
@@ -733,13 +849,21 @@ export default function IbadahTracker() {
                      <RechartsTooltip 
                         contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px', color: '#fff' }}
                         itemStyle={{ color: '#f97316' }}
-                        formatter={(value) => [`${value}% Selesai`, 'Progres']}
+                        formatter={(value, name) => [
+                           name === 'trend' ? `${value}% (Trend)` : `${value}% Selesai`, 
+                           name === 'trend' ? 'Trend Progress' : 'Aktual'
+                        ]}
                         labelFormatter={(label) => `Tanggal ${label}`}
                      />
                      <Area type="monotone" dataKey="persentase" stroke="#f97316" strokeWidth={3} fillOpacity={1} fill="url(#colorOrange)" />
-                  </AreaChart>
+                     {/* Garis Trend Progress */}
+                     <Line type="linear" dataKey="trend" stroke="#3b82f6" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} />
+                  </ComposedChart>
                </ResponsiveContainer>
-               <p className="text-center text-xs text-slate-400 mt-2">Fluktuasi Kuantitas Ibadah Harian di Bulan {MONTH_NAMES[currentDate.getMonth()]}</p>
+               <p className="text-center text-xs text-slate-400 mt-2 flex justify-center gap-4">
+                  <span className="flex items-center gap-1"><span className="w-3 h-1 bg-orange-500 rounded"></span> Aktual Harian</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-blue-500 rounded border border-dashed"></span> Trend Progress</span>
+               </p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -797,15 +921,14 @@ export default function IbadahTracker() {
                      </div>
                   </div>
                   
-                  {/* PERBAIKAN POIN 4: Top 3 Konsisten & Terlewat */}
                   <div className="pt-4 border-t border-slate-200 space-y-3">
                      <div className="bg-white p-4 rounded-xl border border-green-100 shadow-sm">
                         <p className="text-[10px] text-slate-400 font-bold uppercase mb-3 flex items-center gap-1"><Award size={12} className="text-green-500"/> 3 Paling Konsisten</p>
                         <div className="space-y-2">
                            {stats.top3Freq.length ? stats.top3Freq.map((item, i) => (
                               <div key={i} className="flex justify-between items-center text-sm">
-                                 <span className="font-bold text-slate-700">{i+1}. {item.name}</span>
-                                 <span className="font-black text-green-600">{item.done}x</span>
+                                 <span className="font-bold text-slate-700 truncate mr-2">{i+1}. {item.name}</span>
+                                 <span className="font-black text-green-600 shrink-0">{item.done}x</span>
                               </div>
                            )) : <p className="text-xs text-slate-400 italic">Belum ada data.</p>}
                         </div>
@@ -816,8 +939,8 @@ export default function IbadahTracker() {
                         <div className="space-y-2">
                            {stats.top3Missed.length ? stats.top3Missed.map((item, i) => (
                               <div key={i} className="flex justify-between items-center text-sm">
-                                 <span className="font-bold text-slate-700">{i+1}. {item.name}</span>
-                                 <span className="font-black text-red-500">{item.missed}x</span>
+                                 <span className="font-bold text-slate-700 truncate mr-2">{i+1}. {item.name}</span>
+                                 <span className="font-black text-red-500 shrink-0">{item.missed}x</span>
                               </div>
                            )) : <p className="text-xs text-slate-400 italic">Belum ada data.</p>}
                         </div>
@@ -835,8 +958,8 @@ export default function IbadahTracker() {
                         <div className="space-y-2">
                            {stats.top3OnTime.length ? stats.top3OnTime.map((item, i) => (
                               <div key={i} className="flex justify-between items-center text-sm">
-                                 <span className="font-bold text-slate-700">{i+1}. {item.name}</span>
-                                 <span className="font-black text-blue-600">{Math.round(item.onTimePct)}%</span>
+                                 <span className="font-bold text-slate-700 truncate mr-2">{i+1}. {item.name}</span>
+                                 <span className="font-black text-blue-600 shrink-0">{Math.round(item.onTimePct)}%</span>
                               </div>
                            )) : <p className="text-xs text-slate-400 italic">Belum ada data valid.</p>}
                         </div>
@@ -847,8 +970,8 @@ export default function IbadahTracker() {
                         <div className="space-y-2">
                            {stats.top3Late.length ? stats.top3Late.map((item, i) => (
                               <div key={i} className="flex justify-between items-center text-sm">
-                                 <span className="font-bold text-slate-700">{i+1}. {item.name}</span>
-                                 <span className="font-black text-orange-500">{Math.round(item.latePct)}%</span>
+                                 <span className="font-bold text-slate-700 truncate mr-2">{i+1}. {item.name}</span>
+                                 <span className="font-black text-orange-500 shrink-0">{Math.round(item.latePct)}%</span>
                               </div>
                            )) : <p className="text-xs text-slate-400 italic">Belum ada data valid.</p>}
                         </div>
