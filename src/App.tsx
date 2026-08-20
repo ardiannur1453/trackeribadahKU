@@ -94,6 +94,9 @@ export default function IbadahTracker() {
   const [newCommName, setNewCommName] = useState('');
   const [selectedActs, setSelectedActs] = useState<string[]>([]);
 
+  // Tadi baris ini yang tidak sengaja terhapus, sekarang sudah kembali!
+  const chartRef = useRef<HTMLDivElement>(null);
+  
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const todayColumnRef = useRef<HTMLTableCellElement>(null);
 
@@ -334,7 +337,6 @@ export default function IbadahTracker() {
     const actData: Record<string, { done: number, missed: number, onTime: number, late: number }> = {};
     const weeklyStats = [ { expected: 0, done: 0 }, { expected: 0, done: 0 }, { expected: 0, done: 0 }, { expected: 0, done: 0 }, { expected: 0, done: 0 } ];
 
-    // Inisialisasi actData menggunakan allCombinedActivities
     allCombinedActivities.forEach(a => actData[String(a.id)] = { done: 0, missed: 0, onTime: 0, late: 0 });
 
     daysInMonth.forEach(d => {
@@ -732,7 +734,7 @@ export default function IbadahTracker() {
                           <h3 className="font-bold text-slate-800 mb-4">Buat Komunitas Baru</h3>
                           <input type="text" placeholder="Nama Komunitas (Cth: Tim Sales MIP)" value={newCommName} onChange={e => setNewCommName(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl p-3 mb-4 text-sm focus:border-blue-500 outline-none" />
                           
-                          <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-widest">Pilih 12 Aktivitas Wajib</p>
+                          <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-widest">Pilih Aktivitas Wajib</p>
                           <div className="space-y-2 h-64 overflow-y-auto bg-white p-3 rounded-xl border border-slate-200 mb-4">
                              {STANDARD_ACTIVITIES.map(act => (
                                 <label key={act.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-slate-100">
@@ -975,7 +977,7 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          {/* PANEL GAMIFIKASI MULTI-KOMUNITAS (DILOOLPING) */}
+          {/* PANEL GAMIFIKASI MULTI-KOMUNITAS */}
           {joinedCommunityIds.length > 0 && (
              <div className="space-y-6">
                 <h2 className="text-xl font-bold text-slate-800 border-l-4 border-yellow-500 pl-4">Leaderboard Komunitas</h2>
