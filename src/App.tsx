@@ -65,7 +65,7 @@ export default function IbadahTracker() {
   // Data State
   const [personalActivities, setPersonalActivities] = useState<any[]>([]);
   const [joinedCommunityIds, setJoinedCommunityIds] = useState<string[]>([]);
-  const [allCommunities, setAllCommunities] = useState<any[]>([]); // Menyimpan daftar komunitas dari server
+  const [allCommunities, setAllCommunities] = useState<any[]>([]); 
   
   const [records, setRecords] = useState<any>({});
   const [journals, setJournals] = useState<any[]>([]);
@@ -110,7 +110,7 @@ export default function IbadahTracker() {
                displayName: currentUser.displayName,
                email: currentUser.email,
                lastLogin: new Date().getTime(),
-               role: isSuper ? 'superadmin' : undefined // Trigger if unset
+               role: isSuper ? 'superadmin' : undefined
             }, { merge: true });
          } catch (e) {
             console.error("Gagal sinkronisasi profil:", e);
@@ -130,7 +130,7 @@ export default function IbadahTracker() {
             const data = docSnap.data();
             setPersonalActivities(data.activities || []);
             setRecords(data.records || {});
-            setJournals(data.journals || {});
+            setJournals(data.journals || []);
             setJoinedCommunityIds(data.joinedCommunities || []);
             
             if (user.email === 'coachardi1453@gmail.com') setUserRole('superadmin');
@@ -142,7 +142,7 @@ export default function IbadahTracker() {
     }
   }, [user]);
 
-  // 3. Tarik Semua Komunitas (Untuk Deduplikasi & Admin)
+  // 3. Tarik Semua Komunitas
   useEffect(() => {
     if (user) {
       const unsub = onSnapshot(collection(db, 'communities'), (snapshot) => {
@@ -175,6 +175,7 @@ export default function IbadahTracker() {
   }, [hasUnsavedChanges, records, journals, personalActivities, joinedCommunityIds]);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 4000); };
+  
   const scrollToToday = () => {
       if (todayColumnRef.current && tableContainerRef.current) {
          const container = tableContainerRef.current;
@@ -223,10 +224,10 @@ export default function IbadahTracker() {
      const deadline = new Date(targetDate);
      
      if (h < 12) {
-         deadline.setHours(12, 15, 0, 0); // Maks 12:15 hari yang sama
+         deadline.setHours(12, 15, 0, 0); 
      } else {
          deadline.setDate(deadline.getDate() + 1);
-         deadline.setHours(0, 30, 0, 0); // Maks 00:30 hari esoknya
+         deadline.setHours(0, 30, 0, 0); 
      }
      return recordTimestamp <= deadline.getTime();
   };
@@ -256,11 +257,64 @@ export default function IbadahTracker() {
     setHasUnsavedChanges(true); 
   };
 
+  // MANAJEMEN KOMITMEN PRIBADI SAJA
+  const saveActivity = () => {
+     if (!actModal.name.trim()) return showToast("Nama aktivitas tidak boleh kosong!");
+     let newActs = [...personalActivities];
+
+     if (actModal.mode === 'add') {
+        newActs.push({ id: Date.now().toString(), name: actModal.name, time: actModal.time });
+     } else {
+        newActs = newActs.map(a => String(a.id) === String(actModal.id) ? { ...a, name: actModal.name, time: actModal.time } : a);
+     }
+     newActs.sort((a, b) => a.time.localeCompare(b.time));
+
+     setPersonalActivities(newActs);
+     setHasUnsavedChanges(true);
+     setActModal({ show: false, mode: 'add', id: null, name: '', time: '00:00' });
+     showToast(`Aktivitas berhasil ${actModal.mode === 'add' ? 'ditambahkan' : 'diperbarui'}. Klik Simpan Perubahan.`);
+  };
+
+  const deleteActivity = (id: any) => {
+     if (window.confirm("Yakin ingin menghapus aktivitas ini dari tabel?")) {
+        setPersonalActivities(personalActivities.filter(a => String(a.id) !== String(id)));
+        setHasUnsavedChanges(true);
+        showToast("Aktivitas dihapus sementara. Klik Simpan Perubahan ke Server.");
+     }
+  };
+
+  const getDailyEvaluation = (actId: any) => {
+    const today = new Date();
+    let isCurrentMonth = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
+    let isPastMonth = currentDate.getFullYear() < today.getFullYear() || (currentDate.getFullYear() === today.getFullYear() && currentDate.getMonth() < today.getMonth());
+
+    if (!isCurrentMonth && !isPastMonth) return true; 
+
+    const activity = allCombinedActivities.find(a => String(a.id) === String(actId));
+    if (!activity) return true;
+    const [h, m] = activity.time.split(':').map(Number);
+
+    let expected = 0;
+    let doneCount = 0;
+
+    daysInMonth.forEach(d => {
+       const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
+       if (today.getTime() >= targetTime.getTime()) {
+          expected++;
+          const key = `${getLocalDateStr(d)}-${actId}`;
+          if (records[key]?.status === 'done') doneCount++;
+       }
+    });
+
+    if (expected === 0) return true; 
+    const percentage = doneCount / expected;
+    return percentage >= 0.5; 
+  };
+
   // --- KALKULASI PROGRES BERINGKAT & KOSONG = MINUS ---
   const calcStats = () => {
     const today = new Date();
     
-    // Helper fungsi hitung skor array aktivitas tertentu
     const calculateScore = (actArray: any[]) => {
        let expected = 0; let done = 0;
        daysInMonth.forEach(d => {
@@ -281,10 +335,8 @@ export default function IbadahTracker() {
 
     const scorePribadi = personalActivities.length ? calculateScore(personalActivities) : 0;
     
-    // Hitung rata-rata tiap komunitas terpisah
     let totalCommScore = 0;
     let activeComms = 0;
-    
     const communityScoresDetail: Record<string, number> = {};
     
     joinedCommunityIds.forEach(commId => {
@@ -306,7 +358,6 @@ export default function IbadahTracker() {
     else if (personalActivities.length > 0) scoreGabungan = scorePribadi;
     else if (activeComms > 0) scoreGabungan = scoreKomunitas;
 
-    // Disiplin Waktu (Untuk Grafik & Statistik Bawah)
     let totalDone = 0; let totalMissed = 0;
     let onTimeCount = 0; let lateCount = 0;
     const weeklyStats = [ { expected: 0, done: 0 }, { expected: 0, done: 0 }, { expected: 0, done: 0 }, { expected: 0, done: 0 }, { expected: 0, done: 0 } ];
@@ -328,7 +379,7 @@ export default function IbadahTracker() {
                    weeklyStats[wIdx].done++;
                    if (getIsOnTime(rec.timestamp, d, a.time)) onTimeCount++; else lateCount++;
                 } else {
-                   totalMissed++; // Explicitly marked missed
+                   totalMissed++;
                 }
              } else {
                 totalMissed++; // Kosong = Missed
@@ -373,7 +424,6 @@ export default function IbadahTracker() {
        [`score_${monthKey}_gabungan`]: stats.scoreGabungan
     };
     
-    // Simpan skor spesifik tiap komunitas untuk Leaderboard Akurat
     Object.entries(stats.communityScoresDetail).forEach(([commId, score]) => {
        payload[`score_${monthKey}_comm_${commId}`] = score;
     });
@@ -423,24 +473,91 @@ export default function IbadahTracker() {
   // --- FILTER & SORT ADMIN USERS ---
   const filteredAdminUsers = useMemo(() => {
      let result = allUsers;
-     // Jika Admin Biasa, HANYA tampilkan user yang join komunitas miliknya
      if (userRole === 'admin') {
         const myComms = allCommunities.filter(c => c.ownerId === user.uid).map(c => c.id);
         result = allUsers.filter(u => u.joinedCommunities?.some((id:string) => myComms.includes(id)));
      }
-     
-     // Search
      if (adminSearch) {
         const q = adminSearch.toLowerCase();
         result = result.filter(u => (u.displayName||'').toLowerCase().includes(q) || (u.email||'').toLowerCase().includes(q));
      }
-     
-     // Sort
      return result.sort((a,b) => {
         if (adminSort === 'newest') return (b.lastLogin || 0) - (a.lastLogin || 0);
         return (a.displayName||'').localeCompare(b.displayName||'');
      });
   }, [allUsers, userRole, allCommunities, user, adminSearch, adminSort]);
+
+  const handleLogout = () => {
+    if (hasUnsavedChanges) {
+      const confirmLeave = window.confirm("PERINGATAN: Ada perubahan yang belum disimpan ke server! \n\nData Anda mungkin hilang jika pindah perangkat. Yakin ingin keluar sekarang?");
+      if (!confirmLeave) return; 
+    }
+    signOut(auth);
+  };
+
+  const saveJournal = () => {
+    if (!journalInput.title) return showToast("Judul jurnal tidak boleh kosong");
+    const newJ = {
+      id: activeJournal ? activeJournal.id : Date.now(),
+      title: journalInput.title,
+      content: journalInput.content,
+      date: new Date().toISOString() 
+    };
+    if (activeJournal) { setJournals(journals.map(j => j.id === activeJournal.id ? newJ : j)); } 
+    else { setJournals([newJ, ...journals]); }
+    
+    setJournalInput({ title: '', content: '' });
+    setActiveJournal(null);
+    setHasUnsavedChanges(true);
+    showToast("Jurnal telah disematkan. Klik Simpan Perubahan!");
+  };
+
+  const filteredAndSortedJournals = useMemo(() => {
+     let result = journals.filter(j => 
+        j.title.toLowerCase().includes(journalSearch.toLowerCase()) || 
+        j.content.toLowerCase().includes(journalSearch.toLowerCase())
+     );
+     return result.sort((a, b) => {
+        if (journalSort === 'newest') return new Date(b.date).getTime() - new Date(a.date).getTime();
+        if (journalSort === 'oldest') return new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (journalSort === 'az') return a.title.localeCompare(b.title);
+        if (journalSort === 'za') return b.title.localeCompare(a.title);
+        return 0;
+     });
+  }, [journals, journalSearch, journalSort]);
+
+  const exportChart = async () => {
+    if (chartRef.current) {
+      const canvas = await html2canvas(chartRef.current, { backgroundColor: '#ffffff', scale: 2 });
+      const link = document.createElement('a');
+      const firstName = user.displayName?.split(' ')[0] || 'User';
+      const yearStr = currentDate.getFullYear().toString().slice(-2);
+      link.download = `${firstName}-Tafkir-Stats-${MONTH_NAMES[currentDate.getMonth()]}-${yearStr}-Ibadahku.jpg`;
+      link.href = canvas.toDataURL('image/jpeg');
+      link.click();
+    }
+  };
+
+  const chartData = useMemo(() => {
+    const rawData = daysInMonth.map((d, i) => {
+      const dateStr = getLocalDateStr(d);
+      let doneCount = 0;
+      allCombinedActivities.forEach(a => { if (records[`${dateStr}-${a.id}`]?.status === 'done') doneCount++; });
+      const pct = allCombinedActivities.length ? Math.round((doneCount / allCombinedActivities.length) * 100) : 0;
+      return { x: i + 1, tanggal: d.getDate().toString(), persentase: pct };
+    });
+
+    const n = rawData.length;
+    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+    rawData.forEach(d => { sumX += d.x; sumY += d.persentase; sumXY += d.x * d.persentase; sumX2 += d.x * d.x; });
+
+    const denominator = (n * sumX2 - sumX * sumX);
+    const m = denominator === 0 ? 0 : (n * sumXY - sumX * sumY) / denominator;
+    const b = (sumY - m * sumX) / n;
+
+    return rawData.map(d => ({ ...d, trend: Math.max(0, Math.min(100, Math.round(m * d.x + b))) }));
+  }, [daysInMonth, records, allCombinedActivities]);
+
 
   if (isInitializing) return <div className="fixed inset-0 bg-slate-50 flex items-center justify-center text-orange-500 font-bold z-50">Memuat Sistem Tafkir...</div>;
 
@@ -861,7 +978,6 @@ export default function IbadahTracker() {
                    const comm = allCommunities.find(c => c.id === commId);
                    if (!comm) return null;
                    
-                   // Extract leaderboard data for this specific community
                    const boardData = allUsers
                       .map(u => ({ name: u.displayName || 'Anonim', score: u[`score_${String(currentDate.getMonth() + 1).padStart(2, '0')}-${currentDate.getFullYear()}_comm_${commId}`] || 0 }))
                       .filter(u => u.score > 0)
