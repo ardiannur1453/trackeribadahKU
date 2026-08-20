@@ -283,35 +283,7 @@ export default function IbadahTracker() {
      }
   };
 
-  const getDailyEvaluation = (actId: any) => {
-    const today = new Date();
-    let isCurrentMonth = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
-    let isPastMonth = currentDate.getFullYear() < today.getFullYear() || (currentDate.getFullYear() === today.getFullYear() && currentDate.getMonth() < today.getMonth());
-
-    if (!isCurrentMonth && !isPastMonth) return true; 
-
-    const activity = allCombinedActivities.find(a => String(a.id) === String(actId));
-    if (!activity) return true;
-    const [h, m] = activity.time.split(':').map(Number);
-
-    let expected = 0;
-    let doneCount = 0;
-
-    daysInMonth.forEach(d => {
-       const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
-       if (today.getTime() >= targetTime.getTime()) {
-          expected++;
-          const key = `${getLocalDateStr(d)}-${actId}`;
-          if (records[key]?.status === 'done') doneCount++;
-       }
-    });
-
-    if (expected === 0) return true; 
-    const percentage = doneCount / expected;
-    return percentage >= 0.5; 
-  };
-
-  // --- KALKULASI PROGRES BERINGKAT & KOSONG = MINUS ---
+  // --- KALKULASI PROGRES BERINGKAT & KOSONG = MINUS (DISEMBUHKAN) ---
   const calcStats = () => {
     const today = new Date();
     
@@ -323,7 +295,6 @@ export default function IbadahTracker() {
              const [h, m] = a.time.split(':').map(Number);
              const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
              
-             // KOSONG = MINUS: Jika waktu sudah berlalu, masuk expected
              if (today.getTime() >= targetTime.getTime() + 60000) {
                 expected++;
                 if (records[`${dateStr}-${a.id}`]?.status === 'done') done++;
@@ -352,43 +323,78 @@ export default function IbadahTracker() {
 
     const scoreKomunitas = activeComms > 0 ? Math.round(totalCommScore / activeComms) : 0;
     
-    // GABUNGAN
     let scoreGabungan = 0;
     if (personalActivities.length > 0 && activeComms > 0) scoreGabungan = Math.round((scorePribadi + scoreKomunitas) / 2);
     else if (personalActivities.length > 0) scoreGabungan = scorePribadi;
     else if (activeComms > 0) scoreGabungan = scoreKomunitas;
 
+    // Disiplin Waktu (Untuk Grafik & Statistik Bawah)
     let totalDone = 0; let totalMissed = 0;
     let onTimeCount = 0; let lateCount = 0;
+    const actData: Record<string, { done: number, missed: number, onTime: number, late: number }> = {};
     const weeklyStats = [ { expected: 0, done: 0 }, { expected: 0, done: 0 }, { expected: 0, done: 0 }, { expected: 0, done: 0 }, { expected: 0, done: 0 } ];
+
+    // Inisialisasi actData menggunakan allCombinedActivities
+    allCombinedActivities.forEach(a => actData[String(a.id)] = { done: 0, missed: 0, onTime: 0, late: 0 });
 
     daysInMonth.forEach(d => {
        const wIdx = Math.floor((d.getDate() - 1) / 7);
        const dateStr = getLocalDateStr(d);
        
        allCombinedActivities.forEach(a => {
+          const actIdStr = String(a.id);
           const [h, m] = a.time.split(':').map(Number);
           const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
+          
           if (today.getTime() >= targetTime.getTime() + 60000) {
              weeklyStats[wIdx].expected++;
-             const rec = records[`${dateStr}-${a.id}`];
+             const rec = records[`${dateStr}-${actIdStr}`];
              
              if (rec) {
                 if (rec.status === 'done') {
                    totalDone++;
                    weeklyStats[wIdx].done++;
-                   if (getIsOnTime(rec.timestamp, d, a.time)) onTimeCount++; else lateCount++;
+                   if(actData[actIdStr]) actData[actIdStr].done++;
+                   
+                   if (getIsOnTime(rec.timestamp, d, a.time)) {
+                       onTimeCount++;
+                       if(actData[actIdStr]) actData[actIdStr].onTime++;
+                   } else {
+                       lateCount++;
+                       if(actData[actIdStr]) actData[actIdStr].late++;
+                   }
                 } else {
                    totalMissed++;
+                   if(actData[actIdStr]) actData[actIdStr].missed++;
                 }
              } else {
-                totalMissed++; // Kosong = Missed
+                totalMissed++; 
+                if(actData[actIdStr]) actData[actIdStr].missed++;
              }
           }
        });
     });
 
-    return { scorePribadi, scoreKomunitas, scoreGabungan, communityScoresDetail, totalDone, totalMissed, weeklyStats, onTimeCount, lateCount };
+    const totalFilled = totalDone + totalMissed;
+    const donePercent = totalFilled ? Math.round((totalDone / totalFilled) * 100) : 0;
+
+    let sortedFreq = allCombinedActivities.map(a => ({ name: a.name, ...actData[String(a.id)] })).filter(a => (a.done + a.missed) > 0);
+    let top3Freq = [...sortedFreq].sort((a,b) => b.done - a.done).slice(0, 3);
+    let top3Missed = [...sortedFreq].sort((a,b) => b.missed - a.missed).slice(0, 3);
+
+    let sortedDiscip = allCombinedActivities.map(a => {
+       const stat = actData[String(a.id)];
+       return { 
+           name: a.name, done: stat.done,
+           onTimePct: stat.done > 0 ? (stat.onTime / stat.done) * 100 : 0, 
+           latePct: stat.done > 0 ? (stat.late / stat.done) * 100 : 0 
+       };
+    }).filter(a => a.done > 0);
+    
+    let top3OnTime = [...sortedDiscip].sort((a,b) => b.onTimePct - a.onTimePct).slice(0, 3);
+    let top3Late = [...sortedDiscip].sort((a,b) => b.latePct - a.latePct).slice(0, 3);
+
+    return { scorePribadi, scoreKomunitas, scoreGabungan, communityScoresDetail, totalDone, totalMissed, donePercent, weeklyStats, top3Freq, top3Missed, top3OnTime, top3Late };
   };
 
   const stats = calcStats();
