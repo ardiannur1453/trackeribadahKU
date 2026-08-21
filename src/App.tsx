@@ -142,6 +142,8 @@ export default function IbadahTracker() {
   const [editCommId, setEditCommId] = useState<string|null>(null);
   const [newCommName, setNewCommName] = useState('');
   const [selectedActs, setSelectedActs] = useState<{id: string, time: string}[]>([]);
+  
+  const [editGlobalActId, setEditGlobalActId] = useState<string|null>(null);
   const [newGlobalAct, setNewGlobalAct] = useState({ name: '', time: '00:00' });
 
   // --- REFERENCES ---
@@ -222,7 +224,7 @@ export default function IbadahTracker() {
     return () => { unsubUser(); unsubComms(); unsubGlobal(); };
   }, [user, isSuperAdmin]);
 
-  // Daftar Semua User (Sekarang ditarik oleh semua role untuk kebutuhan Gamifikasi)
+  // Daftar Semua User untuk Gamifikasi
   useEffect(() => {
     if (!user) return;
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
@@ -279,6 +281,13 @@ export default function IbadahTracker() {
   // 3. PEMROSESAN DATA (USEMEMO)
   // ==========================================
   
+  // Peta Nama Master Global untuk FORCE-SYNC
+  const globalActsMap = useMemo(() => {
+      const map: Record<string, string> = {};
+      globalActivities.forEach(g => map[g.docId] = g.name);
+      return map;
+  }, [globalActivities]);
+
   // Linked Activities Komunitas (Deduplikasi Kuat: Pilih Jam Paling Awal)
   const communityActivities = useMemo(() => {
      let commActsMap: Record<string, any> = {};
@@ -288,13 +297,13 @@ export default function IbadahTracker() {
            comm.activities.forEach((actObj: any) => {
               const globalAct = globalActivities.find(a => a.id === actObj.id || a.docId === actObj.id);
               if (globalAct) {
-                 const baseId = actObj.id; 
+                 const baseId = actObj.id; // KUNCI DEDUPLIKASI
                  
                  if (!commActsMap[baseId]) {
                      commActsMap[baseId] = { 
                          id: baseId,
                          type: 'komunitas', 
-                         name: globalAct.name, 
+                         name: globalAct.name, // Otomatis sync karena ngambil langsung dari global
                          time: actObj.time, 
                          communities: [comm.name] 
                      };
@@ -302,6 +311,7 @@ export default function IbadahTracker() {
                      if (!commActsMap[baseId].communities.includes(comm.name)) {
                          commActsMap[baseId].communities.push(comm.name);
                      }
+                     // JAM ACUAN ADALAH JAM TERAWAL
                      if (actObj.time < commActsMap[baseId].time) {
                          commActsMap[baseId].time = actObj.time;
                      }
@@ -313,9 +323,15 @@ export default function IbadahTracker() {
      return Object.values(commActsMap).sort((a, b) => a.time.localeCompare(b.time));
   }, [joinedCommunityIds, allCommunities, globalActivities]);
 
+  // Komitmen Pribadi dengan FORCE-SYNC NAMA DARI MASTER GLOBAL
   const formattedPersonalActivities = useMemo(() => {
-      return personalActivities.map(a => ({...a, type: 'pribadi'}));
-  }, [personalActivities]);
+      return personalActivities.map(a => ({
+          ...a, 
+          // Jika id-nya ada di master global, paksa pakai nama master global, jika tidak pakai nama kustomnya
+          name: globalActsMap[a.id] || a.name, 
+          type: 'pribadi'
+      }));
+  }, [personalActivities, globalActsMap]);
 
   const allCombinedActivities = useMemo(() => {
       return [...formattedPersonalActivities, ...communityActivities];
@@ -328,7 +344,7 @@ export default function IbadahTracker() {
          if (!actMap[act.id]) {
              actMap[act.id] = { ...act };
          } else {
-             // Jika beririsan antara pribadi dan grup, jadikan 1 entitas, ambil jam terawal
+             // Jika beririsan, jadikan 1 entitas, ambil jam terawal untuk gembok akurat
              if (act.time < actMap[act.id].time) actMap[act.id].time = act.time;
          }
      });
@@ -560,7 +576,7 @@ export default function IbadahTracker() {
                   const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
                   if (today.getTime() >= targetTime.getTime() + 60000) {
                       expected++;
-                      // Baca langsung dari riwayat mentah user untuk skor instan
+                      // Baca langsung dari riwayat mentah, ini memungkinkan data masa lalu user terbaca instan!
                       if (u.records && u.records[`${dateStr}-${a.id}`]?.status === 'done') {
                           done++;
                       }
@@ -623,7 +639,6 @@ export default function IbadahTracker() {
     
     let totalCommScore = 0; 
     let activeComms = 0; 
-    const communityScoresDetail: Record<string, { monthly: number, weekly: number, yesterday: number }> = {};
     
     const todayDate = today.getDate();
     const currentWeekIdx = Math.floor((todayDate - 1) / 7);
@@ -637,10 +652,6 @@ export default function IbadahTracker() {
           }).filter(Boolean);
           
           const mScore = calculateTimeframeScore(acts, () => true); 
-          const wScore = calculateTimeframeScore(acts, (d) => Math.floor((d.getDate() - 1) / 7) === currentWeekIdx); 
-          const yScore = calculateTimeframeScore(acts, (d) => d.getDate() === todayDate - 1); 
-          
-          communityScoresDetail[commId] = { monthly: mScore, weekly: wScore, yesterday: yScore }; 
           totalCommScore += mScore; 
           activeComms++;
        }
@@ -743,7 +754,7 @@ export default function IbadahTracker() {
     const topLate = [...disciplineList].sort((a,b) => b.avgDiff - a.avgDiff).slice(0, 5);
 
     return { 
-        scorePribadi, scoreKomunitas, scoreGabungan, communityScoresDetail, 
+        scorePribadi, scoreKomunitas, scoreGabungan, 
         qty, qtyGabungan, 
         topPribadi, botPribadi, topComm, botComm, 
         topOnTime, topLate 
@@ -791,13 +802,6 @@ export default function IbadahTracker() {
        lastActivity: new Date().getTime(),
        [`score_${mKey}_gabungan`]: stats.scoreGabungan
     };
-    
-    // Simpan semua Multi-Timeframe Score
-    Object.entries(stats.communityScoresDetail).forEach(([cId, scores]) => {
-        payload[`score_${mKey}_comm_${cId}_monthly`] = scores.monthly;
-        payload[`score_${mKey}_comm_${cId}_weekly`] = scores.weekly;
-        payload[`score_${mKey}_comm_${cId}_yesterday`] = scores.yesterday;
-    });
     
     try {
       await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
@@ -973,12 +977,21 @@ export default function IbadahTracker() {
   const handleAddGlobalActivity = async () => {
      if(!newGlobalAct.name.trim()) return;
      try {
-        const newId = `c${Date.now()}`;
-        await setDoc(doc(db, 'global_activities', newId), { 
-            id: newId, name: newGlobalAct.name, time: newGlobalAct.time 
-        });
-        setNewGlobalAct({ name: '', time: '00:00' }); showToast("Master Ibadah ditambahkan.");
-     } catch (e) { showToast("Gagal menambah master."); }
+        if (editGlobalActId) {
+            await updateDoc(doc(db, 'global_activities', editGlobalActId), { 
+                name: newGlobalAct.name, time: newGlobalAct.time 
+            });
+            setEditGlobalActId(null);
+            showToast("Master Ibadah berhasil diperbarui.");
+        } else {
+            const newId = `c${Date.now()}`;
+            await setDoc(doc(db, 'global_activities', newId), { 
+                id: newId, name: newGlobalAct.name, time: newGlobalAct.time 
+            });
+            showToast("Master Ibadah baru ditambahkan.");
+        }
+        setNewGlobalAct({ name: '', time: '00:00' }); 
+     } catch (e) { showToast("Gagal menyimpan master ibadah."); }
   };
 
   const handleJoinCommunity = () => {
@@ -1241,7 +1254,7 @@ export default function IbadahTracker() {
                     <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center"><img src="/logo.png" alt="Logo" className="w-8 h-8" /></div>
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Tracker IbadahKU</h2>
-                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 21.08.26 rev4 (Enterprise)</p>
+                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 21.08.26 rev6 (Enterprise)</p>
                     </div>
                  </div>
                  
@@ -1407,15 +1420,15 @@ export default function IbadahTracker() {
         {/* ================= ADMIN DASHBOARD ================= */}
         {showAdminPanel && isAdmin && (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
-              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-6xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
-                 <button onClick={() => {setShowAdminPanel(false); setEditCommId(null); setNewCommName(''); setSelectedActs([]);}} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-6xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+                 <button onClick={() => {setShowAdminPanel(false); setEditCommId(null); setNewCommName(''); setSelectedActs([]); setEditGlobalActId(null); setNewGlobalAct({name: '', time: '00:00'});}} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
                  <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-3"><Shield className="text-blue-500"/> {isSuperAdmin ? 'Super Admin Dashboard' : 'Admin Dashboard'}</h2>
                  <p className="text-sm text-slate-500 mb-6 border-b pb-4">Kelola Komunitas Gamifikasi dan Pantau Anggota Anda.</p>
                  
                  <div className="flex border-b border-slate-200 mb-6 gap-6 overflow-x-auto custom-scrollbar pb-1">
                     <button onClick={()=>setAdminTab('users')} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap ${adminTab === 'users' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Pantau Anggota</button>
                     <button onClick={()=>{setAdminTab('communities'); setEditCommId(null); setNewCommName(''); setSelectedActs([]);}} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap ${adminTab === 'communities' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Kelola Komunitas & Kode Join</button>
-                    {isSuperAdmin && <button onClick={()=>setAdminTab('globalacts')} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap ${adminTab === 'globalacts' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Master Ibadah Global</button>}
+                    {isSuperAdmin && <button onClick={()=>{setAdminTab('globalacts'); setEditGlobalActId(null); setNewGlobalAct({name: '', time: '00:00'});}} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap ${adminTab === 'globalacts' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Master Ibadah Global</button>}
                  </div>
 
                  {adminTab === 'users' ? (
@@ -1489,77 +1502,120 @@ export default function IbadahTracker() {
                        </div>
                     </div>
                  ) : adminTab === 'communities' ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                       <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 h-max">
-                          <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">{editCommId ? <><Edit3 size={18}/> Edit Komunitas</> : <><Plus size={18}/> Buat Komunitas Baru</>}</h3>
-                          <input type="text" placeholder="Nama Komunitas (Cth: Tim Sales MIP)" value={newCommName} onChange={e => setNewCommName(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl p-3 mb-4 text-sm focus:border-blue-500 outline-none font-bold" />
-                          <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-widest">Pilih & Atur Jam (Master Global)</p>
-                          <div className="space-y-2 h-[350px] overflow-y-auto bg-white p-3 rounded-xl border border-slate-200 mb-4 custom-scrollbar">
-                             {globalActivities.map(act => {
-                                const isSel = selectedActs.find(a => a.id === act.docId);
-                                return (
-                                <div key={act.docId} className={`flex items-center justify-between p-2 rounded-lg border transition-colors ${isSel ? 'bg-blue-50 border-blue-200' : 'border-transparent hover:bg-slate-50'}`}>
-                                   <label className="flex items-center gap-3 cursor-pointer flex-1">
-                                      <input type="checkbox" checked={!!isSel} onChange={() => { if(isSel) setSelectedActs(selectedActs.filter(a=>a.id!==act.docId)); else setSelectedActs([...selectedActs, {id:act.docId, time:act.time}]); }} className="w-4 h-4 rounded text-blue-600" />
-                                      <span className="text-sm font-semibold text-slate-700">{act.name}</span>
-                                   </label>
-                                   {isSel && <input type="time" value={isSel.time} onChange={(e) => setSelectedActs(selectedActs.map(a => a.id===act.docId ? {...a, time:e.target.value} : a))} className="bg-white border border-blue-200 text-xs px-2 py-1 rounded outline-none text-blue-700 font-bold" />}
-                                </div>
-                             )})}
-                          </div>
-                          <div className="flex gap-2">
-                             {editCommId && <button onClick={()=>{setEditCommId(null); setNewCommName(''); setSelectedActs([]);}} className="px-4 bg-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-300">Batal</button>}
-                             <button onClick={handleSaveCommunity} className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 shadow-md transition-colors">{editCommId ? 'Simpan Perubahan' : 'Generate Kode & Buat'}</button>
-                          </div>
-                       </div>
-                       <div>
-                          <h3 className="font-bold text-slate-800 mb-4 flex items-center justify-between">Komunitas Buatan Anda <span className="text-xs font-normal text-slate-500 bg-slate-100 px-2 py-1 rounded">Limit: {allCommunities.filter(c => c.ownerId === user.uid).length} / {isSuperAdmin ? 'Unlimited' : myCommunityLimit}</span></h3>
-                          <div className="space-y-4 max-h-[550px] overflow-y-auto pr-2 custom-scrollbar">
-                             {allCommunities.filter(c => c.ownerId === user.uid).map(c => (
-                                <div key={c.id} className="bg-white border border-slate-200 p-5 rounded-2xl flex items-center justify-between group hover:border-blue-300 transition-colors shadow-sm">
-                                   <div>
-                                      <div className="flex items-center gap-2 mb-1">
-                                          <p className="font-black text-slate-800 text-lg">{c.name}</p>
-                                          <button onClick={()=>{setEditCommId(c.id); setNewCommName(c.name); setSelectedActs(c.activities||[]); setAdminTab('communities');}} className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-lg transition-colors"><Edit3 size={14}/></button>
-                                          <button onClick={()=>handleDeleteCommunity(c.id)} className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors"><Trash2 size={14}/></button>
-                                      </div>
-                                      <p className="text-[10px] text-slate-400 font-bold uppercase mb-2">{c.activities?.length || 0} Aktivitas Wajib</p>
-                                      
-                                      <button onClick={() => setMembersModal({show:true, commId: c.id, commName: c.name, isAdminView: true})} className="text-xs bg-slate-50 border border-slate-200 text-slate-600 font-bold px-3 py-1.5 rounded-lg flex items-center gap-2 hover:bg-slate-100 transition-colors">
-                                          <Users size={14}/> Kelola {getCommunityMembersFull(c.id).length} Anggota
-                                      </button>
+                    <div>
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 h-max">
+                              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">{editCommId ? <><Edit3 size={18}/> Edit Komunitas</> : <><Plus size={18}/> Buat Komunitas Baru</>}</h3>
+                              <input type="text" placeholder="Nama Komunitas (Cth: Tim Sales MIP)" value={newCommName} onChange={e => setNewCommName(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl p-3 mb-4 text-sm focus:border-blue-500 outline-none font-bold" />
+                              <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-widest">Pilih & Atur Jam (Master Global)</p>
+                              <div className="space-y-2 h-[350px] overflow-y-auto bg-white p-3 rounded-xl border border-slate-200 mb-4 custom-scrollbar">
+                                 {globalActivities.map(act => {
+                                    const isSel = selectedActs.find(a => a.id === act.docId);
+                                    return (
+                                    <div key={act.docId} className={`flex items-center justify-between p-2 rounded-lg border transition-colors ${isSel ? 'bg-blue-50 border-blue-200' : 'border-transparent hover:bg-slate-50'}`}>
+                                       <label className="flex items-center gap-3 cursor-pointer flex-1">
+                                          <input type="checkbox" checked={!!isSel} onChange={() => { if(isSel) setSelectedActs(selectedActs.filter(a=>a.id!==act.docId)); else setSelectedActs([...selectedActs, {id:act.docId, time:act.time}]); }} className="w-4 h-4 rounded text-blue-600" />
+                                          <span className="text-sm font-semibold text-slate-700">{act.name}</span>
+                                       </label>
+                                       {isSel && <input type="time" value={isSel.time} onChange={(e) => setSelectedActs(selectedActs.map(a => a.id===act.docId ? {...a, time:e.target.value} : a))} className="bg-white border border-blue-200 text-xs px-2 py-1 rounded outline-none text-blue-700 font-bold" />}
+                                    </div>
+                                 )})}
+                              </div>
+                              <div className="flex gap-2">
+                                 {editCommId && <button onClick={()=>{setEditCommId(null); setNewCommName(''); setSelectedActs([]);}} className="px-4 bg-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-300">Batal</button>}
+                                 <button onClick={handleSaveCommunity} className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 shadow-md transition-colors">{editCommId ? 'Simpan Perubahan' : 'Generate Kode & Buat'}</button>
+                              </div>
+                           </div>
+                           <div>
+                              <h3 className="font-bold text-slate-800 mb-4 flex items-center justify-between">Komunitas Buatan Anda <span className="text-xs font-normal text-slate-500 bg-slate-100 px-2 py-1 rounded">Limit: {allCommunities.filter(c => c.ownerId === user.uid).length} / {isSuperAdmin ? 'Unlimited' : myCommunityLimit}</span></h3>
+                              <div className="space-y-4 max-h-[550px] overflow-y-auto pr-2 custom-scrollbar">
+                                 {allCommunities.filter(c => c.ownerId === user.uid).map(c => (
+                                    <div key={c.id} className="bg-white border border-slate-200 p-5 rounded-2xl flex items-center justify-between group hover:border-blue-300 transition-colors shadow-sm">
+                                       <div>
+                                          <div className="flex items-center gap-2 mb-1">
+                                              <p className="font-black text-slate-800 text-lg">{c.name}</p>
+                                              <button onClick={()=>{setEditCommId(c.id); setNewCommName(c.name); setSelectedActs(c.activities||[]); setAdminTab('communities');}} className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-lg transition-colors"><Edit3 size={14}/></button>
+                                              <button onClick={()=>handleDeleteCommunity(c.id)} className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors"><Trash2 size={14}/></button>
+                                          </div>
+                                          <p className="text-[10px] text-slate-400 font-bold uppercase mb-2">{c.activities?.length || 0} Aktivitas Wajib</p>
+                                          
+                                          <button onClick={() => setMembersModal({show:true, commId: c.id, commName: c.name, isAdminView: true})} className="text-xs bg-slate-50 border border-slate-200 text-slate-600 font-bold px-3 py-1.5 rounded-lg flex items-center gap-2 hover:bg-slate-100 transition-colors">
+                                              <Users size={14}/> Kelola {getCommunityMembersFull(c.id).length} Anggota
+                                          </button>
 
-                                      {isSuperAdmin && <p className="text-[9px] text-orange-500 font-bold uppercase mt-3">Pembuat: {c.ownerName || 'Unknown'}</p>}
-                                   </div>
-                                   <div className="text-right">
-                                      <p className="text-[9px] text-slate-400 font-bold uppercase mb-1">Kode Join</p>
-                                      <div className="flex items-center gap-2 bg-blue-50 px-3 py-2 rounded-xl border border-blue-100">
-                                         <span className="font-black text-blue-700 tracking-widest text-lg">{c.joinCode}</span>
-                                         <button onClick={()=>{navigator.clipboard.writeText(c.joinCode); showToast("Disalin!");}} className="text-blue-400 hover:text-blue-600 bg-white p-1 rounded shadow-sm"><Copy size={14}/></button>
-                                      </div>
-                                   </div>
-                                </div>
-                             ))}
-                             {allCommunities.filter(c => c.ownerId === user.uid).length === 0 && <p className="text-sm text-center py-8 text-slate-400 italic border-2 border-dashed border-slate-200 rounded-2xl">Anda belum membuat komunitas.</p>}
-                          </div>
+                                          {isSuperAdmin && <p className="text-[9px] text-orange-500 font-bold uppercase mt-3">Pembuat: {c.ownerName || 'Unknown'}</p>}
+                                       </div>
+                                       <div className="text-right">
+                                          <p className="text-[9px] text-slate-400 font-bold uppercase mb-1">Kode Join</p>
+                                          <div className="flex items-center gap-2 bg-blue-50 px-3 py-2 rounded-xl border border-blue-100">
+                                             <span className="font-black text-blue-700 tracking-widest text-lg">{c.joinCode}</span>
+                                             <button onClick={()=>{navigator.clipboard.writeText(c.joinCode); showToast("Disalin!");}} className="text-blue-400 hover:text-blue-600 bg-white p-1 rounded shadow-sm"><Copy size={14}/></button>
+                                          </div>
+                                       </div>
+                                    </div>
+                                 ))}
+                                 {allCommunities.filter(c => c.ownerId === user.uid).length === 0 && <p className="text-sm text-center py-8 text-slate-400 italic border-2 border-dashed border-slate-200 rounded-2xl">Anda belum membuat komunitas.</p>}
+                              </div>
+                           </div>
                        </div>
+                       
+                       {/* ================= GOD-EYE VIEW (SUPER ADMIN HANYA) ================= */}
+                       {isSuperAdmin && (
+                           <div className="mt-8 pt-8 border-t-2 border-slate-200">
+                              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Eye className="text-red-500"/> Komunitas Buatan Admin Lain (God-Eye View)</h3>
+                              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                                 {allCommunities.filter(c => c.ownerId !== user.uid).map(c => (
+                                    <div key={c.id} className="bg-red-50 border border-red-100 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between group hover:border-red-300 transition-colors shadow-sm">
+                                       <div className="mb-4 sm:mb-0">
+                                          <div className="flex items-center gap-2 mb-1">
+                                              <p className="font-black text-slate-800 text-lg">{c.name}</p>
+                                              <button onClick={()=>{setEditCommId(c.id); setNewCommName(c.name); setSelectedActs(c.activities||[]); window.scrollTo(0,0);}} className="text-slate-400 hover:text-blue-600 hover:bg-white p-1.5 rounded-lg transition-colors shadow-sm"><Edit3 size={14}/></button>
+                                              <button onClick={()=>handleDeleteCommunity(c.id)} className="text-slate-400 hover:text-red-600 hover:bg-white p-1.5 rounded-lg transition-colors shadow-sm"><Trash2 size={14}/></button>
+                                          </div>
+                                          <p className="text-[10px] text-slate-500 font-bold uppercase mb-2">{c.activities?.length || 0} Aktivitas Wajib</p>
+                                          
+                                          <button onClick={() => setMembersModal({show:true, commId: c.id, commName: c.name, isAdminView: true})} className="text-xs bg-white border border-red-200 text-red-700 font-bold px-3 py-1.5 rounded-lg flex items-center gap-2 hover:bg-red-100 transition-colors shadow-sm">
+                                              <Users size={14}/> Kelola {getCommunityMembersFull(c.id).length} Anggota
+                                          </button>
+                                          <p className="text-[9px] text-red-500 font-black uppercase mt-3 tracking-widest bg-white inline-block px-2 py-1 rounded border border-red-100">Pembuat: {c.ownerName || 'Unknown'}</p>
+                                       </div>
+                                       <div className="text-left sm:text-right">
+                                          <p className="text-[9px] text-red-400 font-bold uppercase mb-1">Kode Join</p>
+                                          <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-red-200 shadow-sm">
+                                             <span className="font-black text-red-700 tracking-widest text-lg">{c.joinCode}</span>
+                                             <button onClick={()=>{navigator.clipboard.writeText(c.joinCode); showToast("Disalin!");}} className="text-red-400 hover:text-red-600 bg-red-50 p-1 rounded shadow-sm"><Copy size={14}/></button>
+                                          </div>
+                                       </div>
+                                    </div>
+                                 ))}
+                                 {allCommunities.filter(c => c.ownerId !== user.uid).length === 0 && <p className="text-sm text-center py-8 text-slate-400 italic border-2 border-dashed border-slate-200 rounded-2xl">Belum ada admin lain yang membuat komunitas.</p>}
+                              </div>
+                           </div>
+                       )}
                     </div>
                  ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                       <div className="bg-orange-50 p-6 rounded-2xl border border-orange-100 h-max">
-                          <h3 className="font-bold text-orange-800 mb-2">Tambah Master Ibadah Global</h3>
-                          <p className="text-xs text-orange-700 mb-6">Aktivitas ini akan muncul di daftar pilihan saat Admin manapun membuat komunitas baru.</p>
+                       <div className="bg-orange-50 p-6 rounded-2xl border border-orange-100 h-max sticky top-0">
+                          <h3 className="font-bold text-orange-800 mb-2 flex items-center gap-2">{editGlobalActId ? <><Edit3 size={18}/> Edit Master Ibadah</> : <><Plus size={18}/> Tambah Master Ibadah Global</>}</h3>
+                          <p className="text-xs text-orange-700 mb-6">Aktivitas ini akan muncul di daftar pilihan saat Admin membuat komunitas baru.</p>
                           <input type="text" placeholder="Nama Ibadah" value={newGlobalAct.name} onChange={e => setNewGlobalAct({...newGlobalAct, name: e.target.value})} className="w-full bg-white border border-orange-200 rounded-xl p-3 mb-4 text-sm focus:border-orange-500 outline-none font-bold" />
                           <input type="time" value={newGlobalAct.time} onChange={e => setNewGlobalAct({...newGlobalAct, time: e.target.value})} className="w-full bg-white border border-orange-200 rounded-xl p-3 mb-6 text-sm focus:border-orange-500 outline-none font-bold" />
-                          <button onClick={handleAddGlobalActivity} className="w-full bg-orange-600 text-white font-bold py-3 rounded-xl hover:bg-orange-700 shadow-md transition-colors">Tambahkan ke Master Global</button>
+                          <div className="flex gap-2">
+                             {editGlobalActId && <button onClick={()=>{setEditGlobalActId(null); setNewGlobalAct({name: '', time: '00:00'});}} className="px-4 bg-orange-200 text-orange-800 font-bold rounded-xl hover:bg-orange-300">Batal</button>}
+                             <button onClick={handleAddGlobalActivity} className="flex-1 bg-orange-600 text-white font-bold py-3 rounded-xl hover:bg-orange-700 shadow-md transition-colors">{editGlobalActId ? 'Simpan Perubahan' : 'Tambahkan ke Master Global'}</button>
+                          </div>
+                          {editGlobalActId && <p className="text-[9px] text-orange-500 mt-4 font-bold italic leading-relaxed text-center">*Peringatan: Perubahan NAMA di sini akan otomatis mensinkronkan ulang dan merubah nama di tabel komitmen pribadi maupun komunitas seluruh user.</p>}
                        </div>
                        <div>
                           <h3 className="font-bold text-slate-800 mb-4">Daftar Master Global ({globalActivities.length})</h3>
                           <div className="space-y-2 h-[450px] overflow-y-auto pr-2 custom-scrollbar">
                              {globalActivities.map(act => (
-                                <div key={act.docId} className="flex justify-between items-center bg-slate-50 border border-slate-200 p-4 rounded-xl shadow-sm hover:border-orange-300 transition-colors">
+                                <div key={act.docId} className={`flex justify-between items-center bg-slate-50 border p-4 rounded-xl shadow-sm transition-colors ${editGlobalActId === act.docId ? 'border-orange-500 bg-orange-50' : 'border-slate-200 hover:border-orange-300'}`}>
                                    <span className="font-bold text-slate-700">{act.name}</span>
-                                   <span className="text-xs font-black text-orange-600 bg-orange-100 border border-orange-200 px-2 py-1 rounded">{act.time}</span>
+                                   <div className="flex items-center gap-3">
+                                       <span className="text-xs font-black text-orange-600 bg-orange-100 border border-orange-200 px-2 py-1 rounded">{act.time}</span>
+                                       <button onClick={()=>{setEditGlobalActId(act.docId); setNewGlobalAct({name: act.name, time: act.time});}} className="text-slate-400 hover:text-orange-600 bg-white p-1.5 rounded-lg shadow-sm border border-slate-200 transition-colors"><Edit3 size={14}/></button>
+                                   </div>
                                 </div>
                              ))}
                           </div>
@@ -1576,21 +1632,21 @@ export default function IbadahTracker() {
               
               {/* Tombol Undo */}
               {pastRecords.length > 0 && (
-                  <button onClick={handleUndo} className="pointer-events-auto flex flex-col items-center bg-blue-600 text-white p-3 rounded-xl shadow-[0_10px_30px_rgba(37,99,235,0.6)] hover:bg-blue-700 hover:-translate-y-1 transition-all" title="Batal (Undo)">
+                  <button onClick={handleUndo} className="pointer-events-auto flex flex-col items-center bg-blue-600 text-white p-3 rounded-xl shadow-[0_10px_30px_rgba(37,99,235,0.6)] hover:bg-blue-700 hover:-translate-y-1 transition-all border-2 border-blue-400" title="Batal (Undo)">
                       <Undo2 size={24} />
                       <span className="text-[10px] font-black uppercase tracking-widest mt-1">Batal</span>
                   </button>
               )}
 
               {/* Tombol Simpan */}
-              <button onClick={() => saveToServer(false)} disabled={isSaving} className="pointer-events-auto bg-orange-600 text-white px-10 py-5 rounded-full font-black text-lg flex items-center justify-center gap-3 shadow-[0_10px_40px_rgba(249,115,22,0.6)] hover:bg-orange-700 hover:-translate-y-1 transition-all animate-bounce">
+              <button onClick={() => saveToServer(false)} disabled={isSaving} className="pointer-events-auto bg-orange-600 text-white px-10 py-5 rounded-full font-black text-lg flex items-center justify-center gap-3 shadow-[0_10px_40px_rgba(249,115,22,0.6)] hover:bg-orange-700 hover:-translate-y-1 transition-all animate-bounce border-2 border-orange-400">
                   {isSaving ? <RefreshCw className="animate-spin" size={24} /> : <Save size={24} />}
                   {isSaving ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>
 
               {/* Tombol Redo */}
               {futureRecords.length > 0 && (
-                  <button onClick={handleRedo} className="pointer-events-auto flex flex-col items-center bg-blue-600 text-white p-3 rounded-xl shadow-[0_10px_30px_rgba(37,99,235,0.6)] hover:bg-blue-700 hover:-translate-y-1 transition-all" title="Ulangi (Redo)">
+                  <button onClick={handleRedo} className="pointer-events-auto flex flex-col items-center bg-blue-600 text-white p-3 rounded-xl shadow-[0_10px_30px_rgba(37,99,235,0.6)] hover:bg-blue-700 hover:-translate-y-1 transition-all border-2 border-blue-400" title="Ulangi (Redo)">
                       <Redo2 size={24} />
                       <span className="text-[10px] font-black uppercase tracking-widest mt-1">Ulangi</span>
                   </button>
@@ -2210,7 +2266,7 @@ export default function IbadahTracker() {
 
             <div className="mt-12 pt-6 border-t-2 border-slate-100 text-center leading-relaxed">
                <p className="text-slate-500 text-xs font-black tracking-widest uppercase">© 2026 TafkirCorp. Seluruh hak cipta milik ALLAAH SWT.</p>
-               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 21.08.26 rev4)</p>
+               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 21.08.26 rev6)</p>
             </div>
           </div>
 
