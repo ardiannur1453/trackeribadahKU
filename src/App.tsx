@@ -4,7 +4,13 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signO
 import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
 import { ComposedChart, Area, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, Award, AlertOctagon, Search, Shield, Medal, Users, Info, KeyRound, Copy, Target, Clock, Calendar, Activity, Settings, Crown, UserMinus, FileUp, FileDown, ClipboardPaste, ClipboardCopy } from 'lucide-react';
+import { 
+  Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, 
+  ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, 
+  Award, AlertOctagon, Search, Shield, Medal, Users, Info, KeyRound, Copy, 
+  Target, Clock, Calendar, Activity, Settings, Crown, UserMinus, FileUp, 
+  FileDown, ClipboardPaste, ClipboardCopy, Undo2, Redo2 
+} from 'lucide-react';
 
 // ==========================================
 // KONFIGURASI FIREBASE
@@ -75,7 +81,7 @@ export default function IbadahTracker() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   
-  // --- STATES DATA ---
+  // --- STATES DATA UTAMA ---
   const [personalActivities, setPersonalActivities] = useState<any[]>([]);
   const [joinedCommunityIds, setJoinedCommunityIds] = useState<string[]>([]);
   const [allCommunities, setAllCommunities] = useState<any[]>([]); 
@@ -83,6 +89,10 @@ export default function IbadahTracker() {
   const [records, setRecords] = useState<any>({});
   const [journals, setJournals] = useState<any[]>([]);
   
+  // --- STATES TIME TRAVEL (UNDO / REDO) ---
+  const [pastRecords, setPastRecords] = useState<any[]>([]);
+  const [futureRecords, setFutureRecords] = useState<any[]>([]);
+
   // --- STATES UI & MODAL ---
   const [toast, setToast] = useState('');
   const [showInfoModal, setShowInfoModal] = useState(false);
@@ -102,7 +112,6 @@ export default function IbadahTracker() {
       show: false, commId: '', commName: '', isAdminView: false 
   });
 
-  // State untuk Copy-Paste Pola
   const [copiedPattern, setCopiedPattern] = useState<{status: string, timestamp: number, dateStr: string}[] | null>(null);
   
   // --- STATES JURNAL ---
@@ -232,13 +241,11 @@ export default function IbadahTracker() {
     }
   }, [hasUnsavedChanges, records, journals, personalActivities, joinedCommunityIds]);
 
-  // --- FUNGSI UTILITIES TAMPILAN ---
   const showToast = (msg: string) => { 
       setToast(msg); 
       setTimeout(() => setToast(''), 4000); 
   };
   
-  // INI FUNGSI YANG SEMPAT HILANG
   const scrollToToday = () => {
       if (todayColumnRef.current && tableContainerRef.current) {
          const container = tableContainerRef.current; 
@@ -251,7 +258,7 @@ export default function IbadahTracker() {
          showToast("Bulan ini tidak sedang ditampilkan."); 
       }
   };
-  
+
   // ==========================================
   // 3. PEMROSESAN DATA (USEMEMO)
   // ==========================================
@@ -319,9 +326,47 @@ export default function IbadahTracker() {
 
 
   // ==========================================
-  // 4. LOGIKA INPUT & TABEL HISAB
+  // 4. LOGIKA TIME TRAVEL (UNDO/REDO) & INPUT
   // ==========================================
   
+  const pushToHistory = (newRecs: any) => {
+      // Simpan kondisi saat ini ke masa lalu
+      setPastRecords(prev => [...prev, records]);
+      // Kosongkan masa depan karena kita membuat percabangan waktu baru
+      setFutureRecords([]);
+      // Update rekam jejak
+      setRecords(newRecs);
+      setHasUnsavedChanges(true);
+  };
+
+  const handleUndo = () => {
+      if (pastRecords.length === 0) return;
+      const previousState = pastRecords[pastRecords.length - 1];
+      
+      // Simpan state saat ini ke masa depan
+      setFutureRecords(prev => [records, ...prev]);
+      // Hapus state terakhir dari masa lalu
+      setPastRecords(prev => prev.slice(0, -1));
+      // Terapkan state masa lalu
+      setRecords(previousState);
+      setHasUnsavedChanges(true);
+      showToast("Tindakan dibatalkan (Undo).");
+  };
+
+  const handleRedo = () => {
+      if (futureRecords.length === 0) return;
+      const nextState = futureRecords[0];
+      
+      // Simpan state saat ini ke masa lalu
+      setPastRecords(prev => [...prev, records]);
+      // Hapus state pertama dari masa depan
+      setFutureRecords(prev => prev.slice(1));
+      // Terapkan state masa depan
+      setRecords(nextState);
+      setHasUnsavedChanges(true);
+      showToast("Tindakan diulangi (Redo).");
+  };
+
   const getIsOnTime = (recordTimestamp: number, targetDate: Date, actTime: string) => {
      const [h] = actTime.split(':').map(Number);
      const deadline = new Date(targetDate);
@@ -354,8 +399,8 @@ export default function IbadahTracker() {
         newRecs[key] = { status: newStatus, timestamp: now.getTime() }; 
     }
     
-    setRecords(newRecs); 
-    setHasUnsavedChanges(true); 
+    // Gunakan fungsi Time-Travel
+    pushToHistory(newRecs);
   };
 
   // --- FITUR COPY PASTE ---
@@ -391,8 +436,8 @@ export default function IbadahTracker() {
           }
       });
       
-      setRecords(newRecs);
-      setHasUnsavedChanges(true);
+      // Gunakan fungsi Time-Travel
+      pushToHistory(newRecs);
       showToast("Pola berhasil ditempel!");
   };
 
@@ -462,7 +507,7 @@ export default function IbadahTracker() {
 
 
   // ==========================================
-  // 6. MESIN KALKULASI STATISTIK MASTER
+  // 6. MESIN KALKULASI STATISTIK MASTER (ISOLATED)
   // ==========================================
   const calcStats = () => {
     const today = new Date();
@@ -487,13 +532,35 @@ export default function IbadahTracker() {
        return expected === 0 ? 0 : Math.round((done / expected) * 100);
     };
 
-    // A. Skor Berjenjang
+    // Helper untuk Gamifikasi Multi-Timeframe (Hari ini, Pekan ini, Bulan ini)
+    const calculateTimeframeScore = (actArray: any[], filterFn: (d: Date) => boolean) => {
+       let expected = 0; 
+       let done = 0;
+       daysInMonth.filter(filterFn).forEach(d => {
+          const dateStr = getLocalDateStr(d);
+          actArray.forEach(a => {
+             const [h, m] = a.time.split(':').map(Number);
+             const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
+             if (today.getTime() >= targetTime.getTime() + 60000) {
+                expected++; 
+                if (records[`${dateStr}-${a.id}`]?.status === 'done') done++;
+             }
+          });
+       });
+       return expected === 0 ? 0 : Math.round((done / expected) * 100);
+    };
+
+    // A. Skor Berjenjang (Isolasi Pribadi & Komunitas)
     const scorePribadi = personalActivities.length ? calculateScore(formattedPersonalActivities) : 0;
     
     let totalCommScore = 0; 
     let activeComms = 0; 
-    const communityScoresDetail: Record<string, number> = {};
+    // Menyimpan detail skor untuk Gamifikasi
+    const communityScoresDetail: Record<string, { monthly: number, weekly: number, yesterday: number }> = {};
     
+    const todayDate = today.getDate();
+    const currentWeekIdx = Math.floor((todayDate - 1) / 7);
+
     joinedCommunityIds.forEach(commId => {
        const comm = allCommunities.find(c => c.id === commId);
        if (comm && comm.activities?.length > 0) {
@@ -502,9 +569,14 @@ export default function IbadahTracker() {
              return gAct ? { id: actObj.id, name: gAct.name, time: actObj.time } : null;
           }).filter(Boolean);
           
-          const score = calculateScore(acts);
-          communityScoresDetail[commId] = score; 
-          totalCommScore += score; 
+          // Kalkulasi Multi-Timeframe
+          const mScore = calculateTimeframeScore(acts, () => true); // Seluruh hari di bulan ini
+          const wScore = calculateTimeframeScore(acts, (d) => Math.floor((d.getDate() - 1) / 7) === currentWeekIdx); // Hanya pekan ini
+          const yScore = calculateTimeframeScore(acts, (d) => d.getDate() === todayDate - 1); // Hanya kemarin
+          
+          communityScoresDetail[commId] = { monthly: mScore, weekly: wScore, yesterday: yScore }; 
+          
+          totalCommScore += mScore; 
           activeComms++;
        }
     });
@@ -554,7 +626,7 @@ export default function IbadahTracker() {
                 actMetrics[metricKey].diffMinsTotal += diff;
                 
              } else if (rec && rec.status === 'missed') {
-                // Silang manual
+                // Silang manual (Hitung telat juga)
                 actMetrics[metricKey].missed++;
                 if (isPribadi) qty.p_miss++; else qty.c_miss++;
                 
@@ -653,12 +725,22 @@ export default function IbadahTracker() {
        [`score_${mKey}_gabungan`]: stats.scoreGabungan
     };
     
-    Object.entries(stats.communityScoresDetail).forEach(([cId, score]) => {
-        payload[`score_${mKey}_comm_${cId}`] = score;
+    // Simpan semua Multi-Timeframe Score
+    Object.entries(stats.communityScoresDetail).forEach(([cId, scores]) => {
+        payload[`score_${mKey}_comm_${cId}_monthly`] = scores.monthly;
+        payload[`score_${mKey}_comm_${cId}_weekly`] = scores.weekly;
+        payload[`score_${mKey}_comm_${cId}_yesterday`] = scores.yesterday;
     });
     
     try {
       await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
+      
+      // Kosongkan history Undo/Redo setelah disave secara permanen
+      if (!isAutoSave) {
+          setPastRecords([]);
+          setFutureRecords([]);
+      }
+      
       setHasUnsavedChanges(false); 
       if (!isAutoSave) showToast("Disinkronkan ke Server!");
     } catch (e) { 
@@ -693,8 +775,7 @@ export default function IbadahTracker() {
          Object.keys(newRecs).forEach(k => { if(k.startsWith(lastMonthPrefix)) delete newRecs[k]; });
       }
 
-      setRecords(newRecs);
-      setHasUnsavedChanges(true);
+      pushToHistory(newRecs);
       setShowSettingsModal(false);
       showToast("Data berhasil direset. Silakan klik Simpan Perubahan.");
   };
@@ -731,7 +812,7 @@ export default function IbadahTracker() {
               
               if (!window.confirm("Yakin ingin melakukan Import Restore? Data Anda saat ini akan digabungkan (merge) dengan data file.")) return;
 
-              // Merge Data
+              // Gabungkan Data
               setPersonalActivities(prev => {
                   const merged = [...prev];
                   data.personalActivities.forEach((a:any) => { if(!merged.find(x => x.id === a.id)) merged.push(a); });
@@ -743,9 +824,10 @@ export default function IbadahTracker() {
                   data.journals.forEach((j:any) => { if(!merged.find(x => x.id === j.id)) merged.push(j); });
                   return merged;
               });
-              setRecords(prev => ({ ...prev, ...data.records }));
               
-              setHasUnsavedChanges(true);
+              // Push to history for undoability
+              pushToHistory({ ...records, ...data.records });
+              
               setShowSettingsModal(false);
               showToast("Data berhasil di-restore! Klik Simpan Perubahan.");
           } catch(err) {
@@ -1095,7 +1177,7 @@ export default function IbadahTracker() {
                     <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center"><img src="/logo.png" alt="Logo" className="w-8 h-8" /></div>
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Tracker IbadahKU</h2>
-                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 20.08.26 rev8 (Enterprise)</p>
+                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 20.08.26 rev9 (Enterprise)</p>
                     </div>
                  </div>
                  
@@ -1401,13 +1483,29 @@ export default function IbadahTracker() {
            </div>
         )}
 
-        {/* ================= TOMBOL SIMPAN MELAYANG ================= */}
+        {/* ================= TOMBOL SIMPAN MELAYANG (DENGAN UNDO/REDO) ================= */}
         {hasUnsavedChanges && (
-           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] w-full px-4 sm:w-auto sm:px-0 pointer-events-none">
-              <button onClick={() => saveToServer(false)} disabled={isSaving} className="w-full pointer-events-auto sm:w-auto bg-orange-600 text-white px-8 py-4 rounded-full font-black text-lg flex items-center justify-center gap-3 shadow-[0_10px_40px_rgba(249,115,22,0.6)] hover:bg-orange-700 hover:-translate-y-1 transition-all animate-bounce">
+           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[80] w-full px-4 sm:w-auto sm:px-0 flex items-center justify-center gap-3 pointer-events-none">
+              
+              {/* Tombol Undo */}
+              {pastRecords.length > 0 && (
+                  <button onClick={handleUndo} className="pointer-events-auto bg-slate-800 text-white p-4 rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.4)] hover:bg-slate-700 hover:-translate-y-1 transition-all" title="Batal (Undo)">
+                      <Undo2 size={24} />
+                  </button>
+              )}
+
+              {/* Tombol Simpan */}
+              <button onClick={() => saveToServer(false)} disabled={isSaving} className="pointer-events-auto bg-orange-600 text-white px-8 py-4 rounded-full font-black text-lg flex items-center justify-center gap-3 shadow-[0_10px_40px_rgba(249,115,22,0.6)] hover:bg-orange-700 hover:-translate-y-1 transition-all animate-bounce">
                   {isSaving ? <RefreshCw className="animate-spin" size={24} /> : <Save size={24} />}
-                  {isSaving ? 'Menyimpan...' : 'Simpan Perubahan Anda'}
-               </button>
+                  {isSaving ? 'Menyimpan...' : 'Simpan Perubahan'}
+              </button>
+
+              {/* Tombol Redo */}
+              {futureRecords.length > 0 && (
+                  <button onClick={handleRedo} className="pointer-events-auto bg-slate-800 text-white p-4 rounded-full shadow-[0_10px_30px_rgba(0,0,0,0.4)] hover:bg-slate-700 hover:-translate-y-1 transition-all" title="Ulangi (Redo)">
+                      <Redo2 size={24} />
+                  </button>
+              )}
            </div>
         )}
 
@@ -1500,8 +1598,9 @@ export default function IbadahTracker() {
                </div>
             </div>
             
-            {/* CONTAINER TABEL COMPACT (Tanpa pb berlebih, scroll responsif) */}
-            <div className="overflow-x-auto max-h-[70vh] custom-scrollbar" ref={tableContainerRef}>
+            {/* CONTAINER TABEL COMPACT */}
+            {/* Menghapus pb-40 agar tidak ada ruang kosong di bawah, menggunakan fixed padding logic */}
+            <div className="overflow-x-auto overflow-y-visible max-h-[70vh] custom-scrollbar" ref={tableContainerRef}>
               <table className="w-full text-xs">
                 
                 {/* --- HEADER STICKY --- */}
@@ -1533,12 +1632,12 @@ export default function IbadahTracker() {
                              <div className="w-1.5 h-1.5 rounded-full bg-blue-600 shadow-[0_0_5px_rgba(37,99,235,0.8)]"></div>
                              <span className="font-black text-blue-900 text-[10px] uppercase tracking-widest">Komitmen Pribadi</span>
                              
-                             {/* TOOLTIP DIPERBAIKI (Z-Index tinggi, origin mengambang di atas) */}
+                             {/* TOOLTIP DIPERBAIKI (Pop ke samping kanan) */}
                              <div className="relative group/info cursor-help inline-block ml-1">
                                  <Info size={12} className="text-blue-500" />
-                                 <div className="absolute hidden group-hover/info:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
+                                 <div className="absolute hidden group-hover/info:block top-1/2 -translate-y-1/2 left-full ml-3 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
                                      Anda bebas menambah, memilih, mengubah jam, dan menghapus aktivitas di blok ini sesuka hati Anda.
-                                     <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 rotate-45"></div>
+                                     <div className="absolute top-1/2 -translate-y-1/2 right-full -ml-1.5 w-3 h-3 bg-slate-900 rotate-45"></div>
                                  </div>
                              </div>
                          </div>
@@ -1547,8 +1646,10 @@ export default function IbadahTracker() {
                   {formattedPersonalActivities.length === 0 && (
                      <tr><td colSpan={daysInMonth.length + 1} className="p-4 text-center text-slate-400 font-medium italic text-[10px] bg-white">Belum ada komitmen pribadi. Klik tombol "+ Buat Sendiri" di atas.</td></tr>
                   )}
-                  {formattedPersonalActivities.map((act) => {
+                  {formattedPersonalActivities.map((act, rowIndex) => {
                      const isSafe = getDailyEvaluation(act.id);
+                     const isTopRow = rowIndex < 3; // Deteksi jika baris di atas
+                     
                      return (
                     <tr key={act.id} className="bg-white hover:bg-orange-50/50 border-b border-slate-100 transition-colors">
                       <td className="p-2 font-medium sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] bg-white">
@@ -1585,9 +1686,9 @@ export default function IbadahTracker() {
                             : rec?.status === 'missed' ? <div className="w-5 h-5 mx-auto bg-red-50 rounded flex items-center justify-center border border-red-200"><X className="text-red-500" size={12} strokeWidth={3}/></div>
                             : <div className="w-5 h-5 mx-auto rounded bg-slate-50 border border-slate-200 hover:border-orange-400 hover:bg-orange-50 transition-colors" />}
                             
-                            {/* TOOLTIP REPORT INFO MENGAMBANG KE ATAS */}
+                            {/* TOOLTIP REPORT INFO: Cerdas menghindari overflow terpotong */}
                             {rec && (
-                                <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 bg-slate-900 border border-slate-700 text-white text-[10px] p-2.5 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-44 z-[9999] pointer-events-none">
+                                <div className={`absolute hidden group-hover:block left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 text-white text-[10px] p-2.5 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-44 z-[9999] pointer-events-none ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
                                     <p className="font-black text-orange-400 border-b border-slate-700 pb-1 mb-1.5 truncate">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-slate-400 font-medium">Target:</span>
@@ -1600,7 +1701,7 @@ export default function IbadahTracker() {
                                     <div className="text-center w-full">
                                         {getIsOnTime(rec.timestamp, d, act.time) ? <span className="bg-green-900/50 text-green-400 border border-green-800 px-2 py-0.5 rounded font-black tracking-widest text-[8px] uppercase block w-full">Tepat Waktu</span> : <span className="bg-orange-900/50 text-orange-400 border border-orange-800 px-2 py-0.5 rounded font-black tracking-widest text-[8px] uppercase block w-full">Rapelan</span>}
                                     </div>
-                                    <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 border-b border-r border-slate-700 rotate-45"></div>
+                                    <div className={`absolute left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 border-slate-700 rotate-45 ${isTopRow ? '-top-1.5 border-l border-t' : '-bottom-1.5 border-b border-r'}`}></div>
                                 </div>
                             )}
                           </td>
@@ -1626,9 +1727,9 @@ export default function IbadahTracker() {
                              
                              <div className="relative group/info cursor-help inline-block ml-1">
                                  <Info size={12} className="text-purple-500" />
-                                 <div className="absolute hidden group-hover/info:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
+                                 <div className="absolute hidden group-hover/info:block top-1/2 -translate-y-1/2 left-full ml-3 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
                                      Blok ini aktif saat Anda bergabung dengan grup. Daftar aktivitas beserta jam targetnya diatur secara terpusat oleh Admin grup Anda.
-                                     <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 rotate-45"></div>
+                                     <div className="absolute top-1/2 -translate-y-1/2 right-full -ml-1.5 w-3 h-3 bg-slate-900 rotate-45"></div>
                                  </div>
                              </div>
                          </div>
@@ -1733,7 +1834,7 @@ export default function IbadahTracker() {
                    
                    const commMembers = getCommunityMembersFull(commId);
                    const activeTab = leaderboardTabs[commId] || 'monthly';
-                   let sKey = `score_${String(currentDate.getMonth() + 1).padStart(2, '0')}-${currentDate.getFullYear()}_comm_${commId}`;
+                   let sKey = `score_${String(currentDate.getMonth() + 1).padStart(2, '0')}-${currentDate.getFullYear()}_comm_${commId}_${activeTab}`;
                    
                    const boardData = allUsers.map(u => ({ name: u.displayName || 'Anonim', score: u[sKey] || 0 })).filter(u => u.score > 0).sort((a,b) => b.score - a.score).slice(0, 5);
                    const top3 = boardData.slice(0, 3);
@@ -1940,7 +2041,7 @@ export default function IbadahTracker() {
                {/* --- BEDAH DISIPLIN --- */}
                <div className="bg-slate-50 rounded-2xl p-6 md:p-8 border border-slate-200">
                   <h3 className="text-lg font-black text-slate-800 mb-2 text-center flex items-center justify-center gap-2"><Clock className="text-blue-500"/> Presisi Disiplin Laporan</h3>
-                  <p className="text-[10px] text-center text-slate-500 mb-6 px-4">Mengurutkan kepatuhan Anda secara otomatis dengan membandingkan jarak waktu pengisian. (Kotak dibiarkan kosong = Rapelan Maksimal).</p>
+                  <p className="text-[10px] text-center text-slate-500 mb-6 px-4">Mengurutkan kepatuhan Anda secara otomatis dengan membandingkan jarak waktu pengisian (Termasuk kotak dibiarkan kosong = Rapelan Maksimal).</p>
 
                   <div className="space-y-4">
                      <div className="bg-white p-5 rounded-2xl border border-green-200 shadow-sm relative overflow-hidden">
@@ -2025,7 +2126,7 @@ export default function IbadahTracker() {
 
             <div className="mt-12 pt-6 border-t-2 border-slate-100 text-center leading-relaxed">
                <p className="text-slate-500 text-xs font-black tracking-widest uppercase">© 2026 TafkirCorp. Seluruh hak cipta milik ALLAAH SWT.</p>
-               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 20.08.26 rev8)</p>
+               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 20.08.26 rev9)</p>
             </div>
           </div>
 
