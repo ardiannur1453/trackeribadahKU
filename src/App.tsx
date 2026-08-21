@@ -9,7 +9,7 @@ import {
   ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, 
   Award, AlertOctagon, Search, Shield, Medal, Users, Info, KeyRound, Copy, 
   Target, Clock, Calendar, Activity, Settings, Crown, UserMinus, FileUp, 
-  FileDown, ClipboardPaste, ClipboardCopy, Undo2, Redo2 
+  FileDown, ClipboardPaste, ClipboardCopy, Undo2, Redo2, ListOrdered
 } from 'lucide-react';
 
 // ==========================================
@@ -110,6 +110,10 @@ export default function IbadahTracker() {
   
   const [membersModal, setMembersModal] = useState({ 
       show: false, commId: '', commName: '', isAdminView: false 
+  });
+
+  const [fullLeaderboardModal, setFullLeaderboardModal] = useState({
+      show: false, commName: '', boardData: [] as any[]
   });
 
   const [copiedPattern, setCopiedPattern] = useState<{status: string, timestamp: number, dateStr: string}[] | null>(null);
@@ -221,17 +225,16 @@ export default function IbadahTracker() {
     return () => { unsubUser(); unsubComms(); unsubGlobal(); };
   }, [user, isSuperAdmin]);
 
-  // Daftar User (Admin)
+  // Daftar Semua User (Sekarang ditarik oleh semua role untuk kebutuhan Gamifikasi)
   useEffect(() => {
-    if (isAdmin) {
-      const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-         const usersData: any[] = []; 
-         snap.forEach(d => usersData.push({ id: d.id, ...d.data() })); 
-         setAllUsers(usersData);
-      });
-      return () => unsubUsers();
-    }
-  }, [isAdmin]);
+    if (!user) return;
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
+       const usersData: any[] = []; 
+       snap.forEach(d => usersData.push({ id: d.id, ...d.data() })); 
+       setAllUsers(usersData);
+    });
+    return () => unsubUsers();
+  }, [user]);
 
   // Auto Save
   useEffect(() => {
@@ -263,7 +266,7 @@ export default function IbadahTracker() {
   // 3. PEMROSESAN DATA (USEMEMO)
   // ==========================================
   
-  // Linked Activities Komunitas
+  // Linked Activities Komunitas (Dengan Logika Deduplikasi Kuat: Pilih Jam Terawal)
   const communityActivities = useMemo(() => {
      let commActsMap: Record<string, any> = {};
      joinedCommunityIds.forEach(commId => {
@@ -272,18 +275,24 @@ export default function IbadahTracker() {
            comm.activities.forEach((actObj: any) => {
               const globalAct = globalActivities.find(a => a.id === actObj.id || a.docId === actObj.id);
               if (globalAct) {
-                 const uniqueKey = `${actObj.id}_${actObj.time}`;
-                 if (!commActsMap[uniqueKey]) {
-                     commActsMap[uniqueKey] = { 
-                         id: actObj.id, // KUNCI LINKED ACTIVITIES
-                         uniqueKey: uniqueKey,
+                 const baseId = actObj.id; // KUNCI DEDUPLIKASI KUAT
+                 
+                 if (!commActsMap[baseId]) {
+                     commActsMap[baseId] = { 
+                         id: baseId,
                          type: 'komunitas', 
                          name: globalAct.name, 
                          time: actObj.time, 
                          communities: [comm.name] 
                      };
-                 } else if (!commActsMap[uniqueKey].communities.includes(comm.name)) {
-                     commActsMap[uniqueKey].communities.push(comm.name);
+                 } else {
+                     if (!commActsMap[baseId].communities.includes(comm.name)) {
+                         commActsMap[baseId].communities.push(comm.name);
+                     }
+                     // Jika jam berbeda, ambil jam yang paling awal (paling cepat) sebagai acuan gembok waktu
+                     if (actObj.time < commActsMap[baseId].time) {
+                         commActsMap[baseId].time = actObj.time;
+                     }
                  }
               }
            });
@@ -330,11 +339,8 @@ export default function IbadahTracker() {
   // ==========================================
   
   const pushToHistory = (newRecs: any) => {
-      // Simpan kondisi saat ini ke masa lalu
       setPastRecords(prev => [...prev, records]);
-      // Kosongkan masa depan karena kita membuat percabangan waktu baru
       setFutureRecords([]);
-      // Update rekam jejak
       setRecords(newRecs);
       setHasUnsavedChanges(true);
   };
@@ -343,11 +349,8 @@ export default function IbadahTracker() {
       if (pastRecords.length === 0) return;
       const previousState = pastRecords[pastRecords.length - 1];
       
-      // Simpan state saat ini ke masa depan
       setFutureRecords(prev => [records, ...prev]);
-      // Hapus state terakhir dari masa lalu
       setPastRecords(prev => prev.slice(0, -1));
-      // Terapkan state masa lalu
       setRecords(previousState);
       setHasUnsavedChanges(true);
       showToast("Tindakan dibatalkan (Undo).");
@@ -357,11 +360,8 @@ export default function IbadahTracker() {
       if (futureRecords.length === 0) return;
       const nextState = futureRecords[0];
       
-      // Simpan state saat ini ke masa lalu
       setPastRecords(prev => [...prev, records]);
-      // Hapus state pertama dari masa depan
       setFutureRecords(prev => prev.slice(1));
-      // Terapkan state masa depan
       setRecords(nextState);
       setHasUnsavedChanges(true);
       showToast("Tindakan diulangi (Redo).");
@@ -399,7 +399,6 @@ export default function IbadahTracker() {
         newRecs[key] = { status: newStatus, timestamp: now.getTime() }; 
     }
     
-    // Gunakan fungsi Time-Travel
     pushToHistory(newRecs);
   };
 
@@ -431,18 +430,16 @@ export default function IbadahTracker() {
           
           if (new Date().getTime() >= targetDateObj.getTime() + 60000) {
               const key = `${item.dateStr}-${actId}`;
-              // Timestamp menggunakan waktu sekarang (saat di-paste) agar terdeteksi disiplinnya
               newRecs[key] = { status: item.status, timestamp: now };
           }
       });
       
-      // Gunakan fungsi Time-Travel
       pushToHistory(newRecs);
       showToast("Pola berhasil ditempel!");
   };
 
   // ==========================================
-  // 5. MANAJEMEN KOMITMEN PRIBADI (Linked System)
+  // 5. MANAJEMEN KOMITMEN PRIBADI
   // ==========================================
   const saveActivity = () => {
      if (actModal.tab === 'custom' && !actModal.name.trim()) return showToast("Nama aktivitas kosong!");
@@ -476,7 +473,6 @@ export default function IbadahTracker() {
      }
   };
 
-  // Peringatan Segitiga Merah (< 50%)
   const getDailyEvaluation = (actId: any) => {
     const today = new Date();
     let isCurrentMonth = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
@@ -493,7 +489,6 @@ export default function IbadahTracker() {
     
     daysInMonth.forEach(d => {
        const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
-       // Logika Kosong = Minus (Hanya cek yang waktunya sudah lewat)
        if (today.getTime() >= targetTime.getTime() + 60000) {
           expected++; 
           if (records[`${getLocalDateStr(d)}-${actId}`]?.status === 'done') {
@@ -512,7 +507,6 @@ export default function IbadahTracker() {
   const calcStats = () => {
     const today = new Date();
     
-    // Helper Skor Generik
     const calculateScore = (actArray: any[]) => {
        let expected = 0; 
        let done = 0;
@@ -532,7 +526,6 @@ export default function IbadahTracker() {
        return expected === 0 ? 0 : Math.round((done / expected) * 100);
     };
 
-    // Helper untuk Gamifikasi Multi-Timeframe (Hari ini, Pekan ini, Bulan ini)
     const calculateTimeframeScore = (actArray: any[], filterFn: (d: Date) => boolean) => {
        let expected = 0; 
        let done = 0;
@@ -555,7 +548,6 @@ export default function IbadahTracker() {
     
     let totalCommScore = 0; 
     let activeComms = 0; 
-    // Menyimpan detail skor untuk Gamifikasi
     const communityScoresDetail: Record<string, { monthly: number, weekly: number, yesterday: number }> = {};
     
     const todayDate = today.getDate();
@@ -569,10 +561,9 @@ export default function IbadahTracker() {
              return gAct ? { id: actObj.id, name: gAct.name, time: actObj.time } : null;
           }).filter(Boolean);
           
-          // Kalkulasi Multi-Timeframe
-          const mScore = calculateTimeframeScore(acts, () => true); // Seluruh hari di bulan ini
-          const wScore = calculateTimeframeScore(acts, (d) => Math.floor((d.getDate() - 1) / 7) === currentWeekIdx); // Hanya pekan ini
-          const yScore = calculateTimeframeScore(acts, (d) => d.getDate() === todayDate - 1); // Hanya kemarin
+          const mScore = calculateTimeframeScore(acts, () => true); 
+          const wScore = calculateTimeframeScore(acts, (d) => Math.floor((d.getDate() - 1) / 7) === currentWeekIdx); 
+          const yScore = calculateTimeframeScore(acts, (d) => d.getDate() === todayDate - 1); 
           
           communityScoresDetail[commId] = { monthly: mScore, weekly: wScore, yesterday: yScore }; 
           
@@ -620,13 +611,11 @@ export default function IbadahTracker() {
                 actMetrics[metricKey].done++;
                 if (isPribadi) qty.p_done++; else qty.c_done++;
                 
-                // Hitung selisih waktu pelaporan
                 let diff = (rec.timestamp - targetTime) / 60000;
                 if (diff < 0) diff = Math.abs(diff); 
                 actMetrics[metricKey].diffMinsTotal += diff;
                 
              } else if (rec && rec.status === 'missed') {
-                // Silang manual (Hitung telat juga)
                 actMetrics[metricKey].missed++;
                 if (isPribadi) qty.p_miss++; else qty.c_miss++;
                 
@@ -635,10 +624,8 @@ export default function IbadahTracker() {
                 actMetrics[metricKey].diffMinsTotal += diff;
 
              } else {
-                // KOSONG = PENALTI RAPELAN MAKSIMAL (+1440 menit / 24 jam)
                 actMetrics[metricKey].missed++;
                 if (isPribadi) qty.p_miss++; else qty.c_miss++;
-                
                 actMetrics[metricKey].diffMinsTotal += 1440;
              }
           }
@@ -656,7 +643,6 @@ export default function IbadahTracker() {
     const topComm = [...c_metrics].sort((a,b) => b.done - a.done)[0];
     const botComm = [...c_metrics].sort((a,b) => a.done - b.done)[0];
 
-    // C. Analisa Tepat Waktu (Berdasarkan Rata-rata Menit)
     const disciplineMap: Record<string, {name: string, diffMinsTotal: number, totalExpected: number}> = {};
     metricArray.forEach(a => {
         if(!disciplineMap[a.name]) disciplineMap[a.name] = { name: a.name, diffMinsTotal: a.diffMinsTotal, totalExpected: a.totalExpected };
@@ -670,9 +656,7 @@ export default function IbadahTracker() {
         return { name: a.name, avgDiff: a.diffMinsTotal / a.totalExpected };
     });
     
-    // Sort asc untuk Tepat Waktu (selisih menit terkecil)
     const topOnTime = [...disciplineList].sort((a,b) => a.avgDiff - b.avgDiff).slice(0, 5);
-    // Sort desc untuk Telat (selisih menit terbesar, dipenuhi oleh yang kosong)
     const topLate = [...disciplineList].sort((a,b) => b.avgDiff - a.avgDiff).slice(0, 5);
 
     return { 
@@ -685,7 +669,6 @@ export default function IbadahTracker() {
 
   const stats = calcStats();
 
-  // Helper Footer Tabel Ketercapaian
   const getSubDailyPct = (day: Date, acts: any[]) => {
      const today = new Date(); 
      const dateStr = getLocalDateStr(day);
@@ -725,7 +708,6 @@ export default function IbadahTracker() {
        [`score_${mKey}_gabungan`]: stats.scoreGabungan
     };
     
-    // Simpan semua Multi-Timeframe Score
     Object.entries(stats.communityScoresDetail).forEach(([cId, scores]) => {
         payload[`score_${mKey}_comm_${cId}_monthly`] = scores.monthly;
         payload[`score_${mKey}_comm_${cId}_weekly`] = scores.weekly;
@@ -735,7 +717,6 @@ export default function IbadahTracker() {
     try {
       await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
       
-      // Kosongkan history Undo/Redo setelah disave secara permanen
       if (!isAutoSave) {
           setPastRecords([]);
           setFutureRecords([]);
@@ -760,7 +741,6 @@ export default function IbadahTracker() {
       let newRecs = { ...records };
       const now = new Date();
       const thisMonthPrefix = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-      
       const lastMonthDate = new Date(now.getFullYear(), now.getMonth()-1, 1);
       const lastMonthPrefix = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth()+1).padStart(2,'0')}`;
 
@@ -789,7 +769,6 @@ export default function IbadahTracker() {
           records,
           journals
       };
-      
       const blob = new Blob([JSON.stringify(backupData)], {type: "application/json"});
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -809,10 +788,8 @@ export default function IbadahTracker() {
           try {
               const data = JSON.parse(event.target?.result as string);
               if (!data.records || !data.personalActivities) throw new Error("Format tidak valid");
-              
               if (!window.confirm("Yakin ingin melakukan Import Restore? Data Anda saat ini akan digabungkan (merge) dengan data file.")) return;
 
-              // Gabungkan Data
               setPersonalActivities(prev => {
                   const merged = [...prev];
                   data.personalActivities.forEach((a:any) => { if(!merged.find(x => x.id === a.id)) merged.push(a); });
@@ -825,9 +802,7 @@ export default function IbadahTracker() {
                   return merged;
               });
               
-              // Push to history for undoability
               pushToHistory({ ...records, ...data.records });
-              
               setShowSettingsModal(false);
               showToast("Data berhasil di-restore! Klik Simpan Perubahan.");
           } catch(err) {
@@ -876,11 +851,17 @@ export default function IbadahTracker() {
            const prefix = newCommName.split(' ')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
            const joinCode = `${prefix}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
            
-           await addDoc(collection(db, 'communities'), { 
+           const newDocRef = await addDoc(collection(db, 'communities'), { 
                name: newCommName, ownerId: user.uid, ownerName: user.displayName || 'Admin', 
                activities: selectedActs, joinCode: joinCode, createdAt: new Date().getTime() 
            });
-           showToast(`Komunitas dibuat! Kode Join: ${joinCode}`);
+           
+           // AUTO JOIN ADMIN
+           const newJoined = [...joinedCommunityIds, newDocRef.id];
+           setJoinedCommunityIds(newJoined);
+           await setDoc(doc(db, 'users', user.uid), { joinedCommunities: newJoined }, { merge: true });
+
+           showToast(`Komunitas dibuat! Anda otomatis bergabung.`);
         }
         setNewCommName(''); setSelectedActs([]); setEditCommId(null);
      } catch (e) { showToast("Gagal menyimpan komunitas."); }
@@ -927,7 +908,6 @@ export default function IbadahTracker() {
      showToast(`Bergabung ke ${comm.name}! Klik Simpan Perubahan.`);
   };
 
-  // Filter Data Users untuk Admin Dashboard
   const filteredAdminUsers = useMemo(() => {
      let result = allUsers;
      if (userRole === 'admin') {
@@ -1177,7 +1157,7 @@ export default function IbadahTracker() {
                     <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center"><img src="/logo.png" alt="Logo" className="w-8 h-8" /></div>
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Tracker IbadahKU</h2>
-                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 20.08.26 rev9 (Enterprise)</p>
+                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 21.08.26</p>
                     </div>
                  </div>
                  
@@ -1250,6 +1230,29 @@ export default function IbadahTracker() {
                          </div>
                      ))}
                      {getCommunityMembersFull(membersModal.commId).length === 0 && <p className="text-center text-sm text-slate-400">Belum ada anggota.</p>}
+                 </div>
+              </div>
+           </div>
+        )}
+        
+        {/* MODAL FULL LEADERBOARD */}
+        {fullLeaderboardModal.show && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
+                 <button onClick={() => setFullLeaderboardModal({show:false, commName:'', boardData: []})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+                 <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><ListOrdered className="text-blue-500"/> Peringkat Lengkap</h2>
+                 <p className="text-sm font-semibold text-slate-500 mb-6 border-b pb-4">{fullLeaderboardModal.commName}</p>
+                 <div className="max-h-80 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                     {fullLeaderboardModal.boardData.map((u, i) => (
+                         <div key={i} className={`flex items-center justify-between p-3 rounded-xl border ${i===0?'bg-yellow-50 border-yellow-200':i===1?'bg-slate-100 border-slate-300':i===2?'bg-orange-50 border-orange-200':'bg-white border-slate-100'}`}>
+                            <div className="flex items-center gap-3">
+                                <span className={`font-black text-sm w-6 text-center ${i===0?'text-yellow-600':i===1?'text-slate-600':i===2?'text-orange-700':'text-slate-400'}`}>{i+1}</span>
+                                <span className="font-bold text-sm text-slate-700 truncate max-w-[180px]">{u.name}</span>
+                            </div>
+                            <span className="font-black text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded">{u.score}%</span>
+                         </div>
+                     ))}
+                     {fullLeaderboardModal.boardData.length === 0 && <p className="text-center text-sm text-slate-400">Belum ada data kompetisi.</p>}
                  </div>
               </div>
            </div>
@@ -1512,21 +1515,25 @@ export default function IbadahTracker() {
         {/* ================= AREA KONTEN UTAMA ================= */}
         <div className="max-w-7xl mx-auto space-y-8 pb-32">
           
-          {/* HEADER DASHBOARD */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6 flex flex-row justify-between items-center gap-4 relative overflow-hidden">
+          {/* HEADER STICKY DASHBOARD */}
+          <div className="sticky top-0 z-[100] bg-white/90 backdrop-blur-md rounded-b-2xl shadow-sm border-b border-slate-200 p-4 sm:p-6 flex flex-row justify-between items-center gap-4 transition-all">
             <div className="flex items-center gap-3 sm:gap-4">
-              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white rounded-full border-2 border-orange-500 flex items-center justify-center shadow-md">
+              <div className="w-10 h-10 sm:w-14 sm:h-14 bg-white rounded-full border border-orange-500 flex items-center justify-center shadow-sm">
                   <img src="/logo.png" alt="Logo" className="w-[70%] h-[70%] object-contain" />
               </div>
               <div>
-                  <h1 className="text-lg sm:text-2xl font-black text-slate-900 tracking-wide">Tafkir Corp</h1>
-                  <p className="text-[9px] sm:text-xs text-orange-600 font-bold uppercase tracking-[0.2em] mt-1">Tracker Ibadah & Hal Positif</p>
+                  <h1 className="text-base sm:text-2xl font-black text-slate-900 tracking-wide">Tafkir Corp</h1>
+                  <p className="text-[8px] sm:text-xs text-orange-600 font-bold uppercase tracking-[0.2em] mt-1">Tracker Ibadah & Hal Positif</p>
               </div>
             </div>
             
             <div className="flex items-center gap-2 sm:gap-4">
                <div className="text-right flex flex-col justify-center bg-slate-50 px-4 py-2 rounded-xl border border-slate-200 hidden sm:flex">
-                 <div className="text-sm font-bold text-slate-800">{user.displayName?.split(' ')[0]}</div>
+                 <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                     {user.displayName?.split(' ')[0]} 
+                     {/* BADGE ROLE */}
+                     {isSuperAdmin ? <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded uppercase tracking-widest border border-red-200">Super Admin</span> : isAdmin ? <span className="text-[9px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded uppercase tracking-widest border border-orange-200">Premium</span> : <span className="text-[9px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded uppercase tracking-widest border border-slate-300">Reguler</span>}
+                 </div>
                  <div className="text-[10px] font-bold flex justify-end mt-0.5">
                      {isSyncing ? <span className="text-blue-500 flex items-center gap-1"><RefreshCw size={10} className="animate-spin"/> Syncing...</span> : <span className="text-green-600 flex items-center gap-1"><Zap size={10}/> Synchronized</span>}
                  </div>
@@ -1599,11 +1606,10 @@ export default function IbadahTracker() {
             </div>
             
             {/* CONTAINER TABEL COMPACT */}
-            {/* Menghapus pb-40 agar tidak ada ruang kosong di bawah, menggunakan fixed padding logic */}
             <div className="overflow-x-auto overflow-y-visible max-h-[70vh] custom-scrollbar" ref={tableContainerRef}>
               <table className="w-full text-xs">
                 
-                {/* --- HEADER STICKY --- */}
+                {/* --- HEADER STICKY TINGKAT 2 --- */}
                 <thead className="sticky top-0 z-40 bg-slate-100 shadow-md">
                   <tr>
                     <th className="text-left text-slate-800 font-black p-3 sticky left-0 top-0 z-50 bg-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[200px] sm:min-w-[280px]">
@@ -1632,12 +1638,12 @@ export default function IbadahTracker() {
                              <div className="w-1.5 h-1.5 rounded-full bg-blue-600 shadow-[0_0_5px_rgba(37,99,235,0.8)]"></div>
                              <span className="font-black text-blue-900 text-[10px] uppercase tracking-widest">Komitmen Pribadi</span>
                              
-                             {/* TOOLTIP DIPERBAIKI (Pop ke samping kanan) */}
+                             {/* TOOLTIP DIPERBAIKI (Z-Index tinggi, origin mengambang ke atas) */}
                              <div className="relative group/info cursor-help inline-block ml-1">
                                  <Info size={12} className="text-blue-500" />
-                                 <div className="absolute hidden group-hover/info:block top-1/2 -translate-y-1/2 left-full ml-3 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
+                                 <div className="absolute hidden group-hover/info:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
                                      Anda bebas menambah, memilih, mengubah jam, dan menghapus aktivitas di blok ini sesuka hati Anda.
-                                     <div className="absolute top-1/2 -translate-y-1/2 right-full -ml-1.5 w-3 h-3 bg-slate-900 rotate-45"></div>
+                                     <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 rotate-45"></div>
                                  </div>
                              </div>
                          </div>
@@ -1648,8 +1654,7 @@ export default function IbadahTracker() {
                   )}
                   {formattedPersonalActivities.map((act, rowIndex) => {
                      const isSafe = getDailyEvaluation(act.id);
-                     const isTopRow = rowIndex < 3; // Deteksi jika baris di atas
-                     
+                     const isTopRow = rowIndex < 3; 
                      return (
                     <tr key={act.id} className="bg-white hover:bg-orange-50/50 border-b border-slate-100 transition-colors">
                       <td className="p-2 font-medium sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] bg-white">
@@ -1727,9 +1732,9 @@ export default function IbadahTracker() {
                              
                              <div className="relative group/info cursor-help inline-block ml-1">
                                  <Info size={12} className="text-purple-500" />
-                                 <div className="absolute hidden group-hover/info:block top-1/2 -translate-y-1/2 left-full ml-3 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
+                                 <div className="absolute hidden group-hover/info:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
                                      Blok ini aktif saat Anda bergabung dengan grup. Daftar aktivitas beserta jam targetnya diatur secara terpusat oleh Admin grup Anda.
-                                     <div className="absolute top-1/2 -translate-y-1/2 right-full -ml-1.5 w-3 h-3 bg-slate-900 rotate-45"></div>
+                                     <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 rotate-45"></div>
                                  </div>
                              </div>
                          </div>
@@ -1826,7 +1831,6 @@ export default function IbadahTracker() {
                    <h2 className="text-2xl font-black text-slate-800">Leaderboard Komunitas</h2>
                 </div>
                 
-                {/* GRID LAYOUT AGAR TIDAK MEMAKAN RUANG VERTIKAL */}
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                 {joinedCommunityIds.map(commId => {
                    const comm = allCommunities.find(c => c.id === commId); 
@@ -1836,9 +1840,9 @@ export default function IbadahTracker() {
                    const activeTab = leaderboardTabs[commId] || 'monthly';
                    let sKey = `score_${String(currentDate.getMonth() + 1).padStart(2, '0')}-${currentDate.getFullYear()}_comm_${commId}_${activeTab}`;
                    
-                   const boardData = allUsers.map(u => ({ name: u.displayName || 'Anonim', score: u[sKey] || 0 })).filter(u => u.score > 0).sort((a,b) => b.score - a.score).slice(0, 5);
+                   const boardData = allUsers.map(u => ({ name: u.displayName || 'Anonim', score: u[sKey] || 0 })).filter(u => u.score > 0).sort((a,b) => b.score - a.score);
                    const top3 = boardData.slice(0, 3);
-                   const rest = boardData.slice(3, 5);
+                   const rest = boardData.slice(3);
 
                    return (
                    <div key={commId} className="bg-gradient-to-b from-slate-900 to-[#0f172a] rounded-3xl shadow-xl p-5 md:p-6 border border-slate-700/50 relative overflow-hidden flex flex-col h-full">
@@ -1894,19 +1898,11 @@ export default function IbadahTracker() {
                                   )}
                                </div>
                                
-                               {/* === LIST COMPACT === */}
+                               {/* === TOMBOL MENU PERINGKAT LENGKAP === */}
                                {rest.length > 0 && (
-                               <div className="w-full mt-auto space-y-2">
-                                  {rest.map((usr, i) => (
-                                     <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
-                                        <div className="flex items-center gap-3">
-                                            <span className="text-slate-500 font-black text-sm w-4 text-center">{i+4}</span>
-                                            <span className="font-bold text-slate-200 text-xs truncate max-w-[120px] sm:max-w-[180px]">{usr.name}</span>
-                                        </div>
-                                        <span className="font-black text-white text-xs bg-blue-900/30 px-2 py-0.5 rounded border border-blue-500/20">{usr.score}%</span>
-                                     </div>
-                                  ))}
-                               </div>
+                                   <button onClick={() => setFullLeaderboardModal({show:true, commName: comm.name, boardData: boardData})} className="text-xs w-full py-2.5 mt-4 bg-blue-900/30 hover:bg-blue-800/50 text-blue-400 font-bold rounded-lg border border-blue-500/30 transition-colors flex items-center justify-center gap-2">
+                                       <ListOrdered size={14}/> Lihat Peringkat Lengkap (Ke-{boardData.length})
+                                   </button>
                                )}
                             </div>
                          )}
