@@ -133,6 +133,8 @@ export default function IbadahTracker() {
 
   // --- REFERENCES ---
   const chartRef = useRef<HTMLDivElement>(null);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const todayColumnRef = useRef<HTMLTableCellElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ==========================================
@@ -230,9 +232,24 @@ export default function IbadahTracker() {
     }
   }, [hasUnsavedChanges, records, journals, personalActivities, joinedCommunityIds]);
 
+  // --- FUNGSI UTILITIES TAMPILAN ---
   const showToast = (msg: string) => { 
       setToast(msg); 
       setTimeout(() => setToast(''), 4000); 
+  };
+  
+  // INI FUNGSI YANG SEMPAT HILANG
+  const scrollToToday = () => {
+      if (todayColumnRef.current && tableContainerRef.current) {
+         const container = tableContainerRef.current; 
+         const target = todayColumnRef.current;
+         container.scrollTo({ 
+             left: target.offsetLeft - (container.clientWidth / 2) + (target.clientWidth / 2), 
+             behavior: 'smooth' 
+         });
+      } else { 
+         showToast("Bulan ini tidak sedang ditampilkan."); 
+      }
   };
   
   // ==========================================
@@ -537,7 +554,7 @@ export default function IbadahTracker() {
                 actMetrics[metricKey].diffMinsTotal += diff;
                 
              } else if (rec && rec.status === 'missed') {
-                // Silang manual (Hitung telat juga)
+                // Silang manual
                 actMetrics[metricKey].missed++;
                 if (isPribadi) qty.p_miss++; else qty.c_miss++;
                 
@@ -1279,11 +1296,9 @@ export default function IbadahTracker() {
                                       <td className="p-4">{actStatus}</td>
                                       {isSuperAdmin && (
                                          <td className="p-4 text-center">
-                                            {u.role === 'admin' ? (
-                                               <select value={u.communityLimit || 1} onChange={(e)=>handleUpdateCommunityLimit(u.id, Number(e.target.value))} className="bg-slate-50 border border-slate-200 text-xs px-2 py-1 rounded outline-none font-bold text-slate-700 cursor-pointer">
-                                                  <option value={1}>1 Grup</option><option value={3}>3 Grup</option><option value={5}>5 Grup</option><option value={999}>Unlimited</option>
-                                               </select>
-                                            ) : <span className="text-xs text-slate-400">-</span>}
+                                            <select value={u.communityLimit || 1} onChange={(e)=>handleUpdateCommunityLimit(u.id, Number(e.target.value))} className="bg-slate-50 border border-slate-200 text-xs px-2 py-1 rounded outline-none font-bold text-slate-700 cursor-pointer">
+                                               <option value={1}>1 Grup</option><option value={3}>3 Grup</option><option value={5}>5 Grup</option><option value={999}>Unlimited</option>
+                                            </select>
                                          </td>
                                       )}
                                       {isSuperAdmin && (
