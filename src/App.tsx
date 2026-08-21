@@ -4,7 +4,7 @@ import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signO
 import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import html2canvas from 'html2canvas';
 import { ComposedChart, Area, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
-import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, Award, AlertOctagon, Search, Shield, Medal, Users, Info, KeyRound, Copy, Target, Clock, Calendar, Activity, Settings, Crown, UserMinus } from 'lucide-react';
+import { Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, Award, AlertOctagon, Search, Shield, Medal, Users, Info, KeyRound, Copy, Target, Clock, Calendar, Activity, Settings, Crown, UserMinus, FileUp, FileDown, ClipboardPaste, ClipboardCopy } from 'lucide-react';
 
 // ==========================================
 // KONFIGURASI FIREBASE
@@ -91,22 +91,19 @@ export default function IbadahTracker() {
   const [joinCodeInput, setJoinCodeInput] = useState('');
   
   const [actModal, setActModal] = useState({ 
-      show: false, 
-      mode: 'add', 
-      tab: 'global', 
-      id: null as any, 
-      name: '', 
-      time: '00:00' 
+      show: false, mode: 'add', tab: 'global', id: null as any, name: '', time: '00:00' 
   });
   
   const [roleConfirmModal, setRoleConfirmModal] = useState({ 
       show: false, targetUser: null as any, makeAdmin: false 
   });
   
-  // Modal List Member & Kick
   const [membersModal, setMembersModal] = useState({ 
       show: false, commId: '', commName: '', isAdminView: false 
   });
+
+  // State untuk Copy-Paste Pola
+  const [copiedPattern, setCopiedPattern] = useState<{status: string, timestamp: number, dateStr: string}[] | null>(null);
   
   // --- STATES JURNAL ---
   const [activeJournal, setActiveJournal] = useState<any>(null);
@@ -136,8 +133,7 @@ export default function IbadahTracker() {
 
   // --- REFERENCES ---
   const chartRef = useRef<HTMLDivElement>(null);
-  const tableContainerRef = useRef<HTMLDivElement>(null);
-  const todayColumnRef = useRef<HTMLTableCellElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ==========================================
   // 1. INIT AUTH & LAST LOGIN
@@ -171,11 +167,10 @@ export default function IbadahTracker() {
     if (!user) return;
     setIsSyncing(true);
     
-    // 2A. Profil User & Rekaman
+    // Profil User
     const unsubUser = onSnapshot(doc(db, 'users', user.uid), (snap) => {
        if (snap.exists()) {
           const d = snap.data();
-          // Inisialisasi awal Pribadi bersih (tanpa DEFAULT_ACTIVITIES)
           setPersonalActivities(d.activities || []); 
           setRecords(d.records || {});
           setJournals(d.journals || []); 
@@ -191,14 +186,14 @@ export default function IbadahTracker() {
        setIsSyncing(false);
     });
     
-    // 2B. Daftar Semua Komunitas
+    // Komunitas
     const unsubComms = onSnapshot(collection(db, 'communities'), (snap) => {
        const comms: any[] = []; 
        snap.forEach(d => comms.push({ id: d.id, ...d.data() })); 
        setAllCommunities(comms);
     });
     
-    // 2C. Master Ibadah Global
+    // Master Global
     const unsubGlobal = onSnapshot(collection(db, 'global_activities'), (snap) => {
        if (snap.empty && isSuperAdmin) { 
           SEED_ACTIVITIES.forEach(async (act) => {
@@ -212,14 +207,10 @@ export default function IbadahTracker() {
        }
     });
     
-    return () => { 
-        unsubUser(); 
-        unsubComms(); 
-        unsubGlobal(); 
-    };
+    return () => { unsubUser(); unsubComms(); unsubGlobal(); };
   }, [user, isSuperAdmin]);
 
-  // 2D. Daftar User (Hanya jika role Admin/SuperAdmin)
+  // Daftar User (Admin)
   useEffect(() => {
     if (isAdmin) {
       const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
@@ -231,9 +222,7 @@ export default function IbadahTracker() {
     }
   }, [isAdmin]);
 
-  // ==========================================
-  // 3. AUTO SAVE TRIGGER & UTILS
-  // ==========================================
+  // Auto Save
   useEffect(() => {
     if (hasUnsavedChanges && user) {
       const timer = setTimeout(() => saveToServer(true), 5 * 60 * 1000); 
@@ -246,27 +235,13 @@ export default function IbadahTracker() {
       setTimeout(() => setToast(''), 4000); 
   };
   
-  const scrollToToday = () => {
-      if (todayColumnRef.current && tableContainerRef.current) {
-         const container = tableContainerRef.current; 
-         const target = todayColumnRef.current;
-         container.scrollTo({ 
-             left: target.offsetLeft - (container.clientWidth / 2) + (target.clientWidth / 2), 
-             behavior: 'smooth' 
-         });
-      } else { 
-         showToast("Bulan ini tidak sedang ditampilkan."); 
-      }
-  };
-
   // ==========================================
-  // 4. PEMROSESAN DATA (USEMEMO)
+  // 3. PEMROSESAN DATA (USEMEMO)
   // ==========================================
   
-  // Deduplikasi & Penggabungan Data Komunitas (Linked Activities Base)
+  // Linked Activities Komunitas
   const communityActivities = useMemo(() => {
      let commActsMap: Record<string, any> = {};
-     
      joinedCommunityIds.forEach(commId => {
         const comm = allCommunities.find(c => c.id === commId);
         if (comm && comm.activities) {
@@ -314,7 +289,7 @@ export default function IbadahTracker() {
     return Array.from({ length: days }, (_, i) => new Date(year, month, i + 1));
   }, [currentDate]);
 
-  // Clean-up "ID Hantu" jika admin menghapus komunitas
+  // Clean-up "ID Hantu"
   useEffect(() => {
      if(allCommunities.length > 0 && joinedCommunityIds.length > 0) {
         const validIds = joinedCommunityIds.filter(id => allCommunities.some(c => c.id === id));
@@ -327,21 +302,14 @@ export default function IbadahTracker() {
 
 
   // ==========================================
-  // 5. LOGIKA INPUT & TABEL HISAB
+  // 4. LOGIKA INPUT & TABEL HISAB
   // ==========================================
   
-  // Penentuan Tepat Waktu (Maks 12:15 & Maks 00:30)
   const getIsOnTime = (recordTimestamp: number, targetDate: Date, actTime: string) => {
      const [h] = actTime.split(':').map(Number);
      const deadline = new Date(targetDate);
-     
-     if (h < 12) { 
-         deadline.setHours(12, 15, 0, 0); 
-     } else { 
-         deadline.setDate(deadline.getDate() + 1); 
-         deadline.setHours(0, 30, 0, 0); 
-     }
-     
+     if (h < 12) { deadline.setHours(12, 15, 0, 0); } 
+     else { deadline.setDate(deadline.getDate() + 1); deadline.setHours(0, 30, 0, 0); }
      return recordTimestamp <= deadline.getTime();
   };
 
@@ -350,7 +318,7 @@ export default function IbadahTracker() {
     const [hours, minutes] = actTime.split(':').map(Number);
     const targetTime = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, minutes);
     
-    // Gembok Masa Depan + 1 Menit (Acuan klik kotak)
+    // Gembok Masa Depan + 1 Menit
     const unlockTime = new Date(targetTime.getTime() + 60000); 
     if (now < unlockTime) {
         return showToast(`Belum waktunya! Dibuka pukul ${unlockTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`);
@@ -373,8 +341,46 @@ export default function IbadahTracker() {
     setHasUnsavedChanges(true); 
   };
 
+  // --- FITUR COPY PASTE ---
+  const handleCopyPattern = (actId: string) => {
+      const pattern: {status: string, timestamp: number, dateStr: string}[] = [];
+      daysInMonth.forEach(d => {
+          const dateStr = getLocalDateStr(d);
+          const rec = records[`${dateStr}-${actId}`];
+          if (rec) {
+              pattern.push({ status: rec.status, timestamp: rec.timestamp, dateStr: dateStr });
+          }
+      });
+      setCopiedPattern(pattern);
+      showToast("Pola baris disalin! Klik Paste di baris tujuan.");
+  };
+
+  const handlePastePattern = (actId: string, targetTimeStr: string) => {
+      if (!copiedPattern) return showToast("Tidak ada pola yang disalin.");
+      
+      const now = new Date().getTime();
+      let newRecs = { ...records };
+      const [h, m] = targetTimeStr.split(':').map(Number);
+      
+      copiedPattern.forEach(item => {
+          // Hanya paste jika jadwal targetnya sudah lewat (+1 menit)
+          const targetDateObj = new Date(item.dateStr);
+          targetDateObj.setHours(h, m, 0, 0);
+          
+          if (new Date().getTime() >= targetDateObj.getTime() + 60000) {
+              const key = `${item.dateStr}-${actId}`;
+              // Timestamp menggunakan waktu sekarang (saat di-paste) agar terdeteksi disiplinnya
+              newRecs[key] = { status: item.status, timestamp: now };
+          }
+      });
+      
+      setRecords(newRecs);
+      setHasUnsavedChanges(true);
+      showToast("Pola berhasil ditempel!");
+  };
+
   // ==========================================
-  // 6. MANAJEMEN KOMITMEN PRIBADI (Linked System)
+  // 5. MANAJEMEN KOMITMEN PRIBADI (Linked System)
   // ==========================================
   const saveActivity = () => {
      if (actModal.tab === 'custom' && !actModal.name.trim()) return showToast("Nama aktivitas kosong!");
@@ -425,6 +431,7 @@ export default function IbadahTracker() {
     
     daysInMonth.forEach(d => {
        const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
+       // Logika Kosong = Minus (Hanya cek yang waktunya sudah lewat)
        if (today.getTime() >= targetTime.getTime() + 60000) {
           expected++; 
           if (records[`${getLocalDateStr(d)}-${actId}`]?.status === 'done') {
@@ -438,11 +445,12 @@ export default function IbadahTracker() {
 
 
   // ==========================================
-  // 7. MESIN KALKULASI STATISTIK MASTER
+  // 6. MESIN KALKULASI STATISTIK MASTER
   // ==========================================
   const calcStats = () => {
     const today = new Date();
     
+    // Helper Skor Generik
     const calculateScore = (actArray: any[]) => {
        let expected = 0; 
        let done = 0;
@@ -462,6 +470,7 @@ export default function IbadahTracker() {
        return expected === 0 ? 0 : Math.round((done / expected) * 100);
     };
 
+    // A. Skor Berjenjang
     const scorePribadi = personalActivities.length ? calculateScore(formattedPersonalActivities) : 0;
     
     let totalCommScore = 0; 
@@ -494,11 +503,12 @@ export default function IbadahTracker() {
         scoreGabungan = scoreKomunitas;
     }
 
-    const actMetrics: Record<string, { name: string, type: string, done: number, missed: number, diffMinsTotal: number }> = {};
+    // B. Metrik Kuantitas & Kedisiplinan
+    const actMetrics: Record<string, { name: string, type: string, done: number, missed: number, diffMinsTotal: number, totalExpected: number }> = {};
     
     allCombinedActivities.forEach(a => {
         const uniqueMetricKey = `${a.id}_${a.type}`; 
-        actMetrics[uniqueMetricKey] = { name: a.name, type: a.type, done: 0, missed: 0, diffMinsTotal: 0 };
+        actMetrics[uniqueMetricKey] = { name: a.name, type: a.type, done: 0, missed: 0, diffMinsTotal: 0, totalExpected: 0 };
     });
 
     let qty = { p_done: 0, p_miss: 0, c_done: 0, c_miss: 0 };
@@ -515,18 +525,32 @@ export default function IbadahTracker() {
              const rec = records[`${dateStr}-${a.id}`];
              const isPribadi = a.type === 'pribadi';
              
+             actMetrics[metricKey].totalExpected++;
+
              if (rec && rec.status === 'done') {
                 actMetrics[metricKey].done++;
                 if (isPribadi) qty.p_done++; else qty.c_done++;
                 
+                // Hitung selisih waktu pelaporan
                 let diff = (rec.timestamp - targetTime) / 60000;
                 if (diff < 0) diff = Math.abs(diff); 
-                
                 actMetrics[metricKey].diffMinsTotal += diff;
                 
-             } else {
+             } else if (rec && rec.status === 'missed') {
+                // Silang manual (Hitung telat juga)
                 actMetrics[metricKey].missed++;
                 if (isPribadi) qty.p_miss++; else qty.c_miss++;
+                
+                let diff = (rec.timestamp - targetTime) / 60000;
+                if (diff < 0) diff = Math.abs(diff); 
+                actMetrics[metricKey].diffMinsTotal += diff;
+
+             } else {
+                // KOSONG = PENALTI RAPELAN MAKSIMAL (+1440 menit / 24 jam)
+                actMetrics[metricKey].missed++;
+                if (isPribadi) qty.p_miss++; else qty.c_miss++;
+                
+                actMetrics[metricKey].diffMinsTotal += 1440;
              }
           }
        });
@@ -534,7 +558,7 @@ export default function IbadahTracker() {
 
     const qtyGabungan = { done: qty.p_done + qty.c_done, missed: qty.p_miss + qty.c_miss };
 
-    const metricArray = Object.values(actMetrics).filter(a => a.done + a.missed > 0);
+    const metricArray = Object.values(actMetrics).filter(a => a.totalExpected > 0);
     const p_metrics = metricArray.filter(a => a.type === 'pribadi');
     const c_metrics = metricArray.filter(a => a.type === 'komunitas');
     
@@ -543,20 +567,23 @@ export default function IbadahTracker() {
     const topComm = [...c_metrics].sort((a,b) => b.done - a.done)[0];
     const botComm = [...c_metrics].sort((a,b) => a.done - b.done)[0];
 
-    const disciplineMap: Record<string, {name: string, diffMinsTotal: number, done: number}> = {};
-    metricArray.filter(a => a.done > 0).forEach(a => {
-        if(!disciplineMap[a.name]) disciplineMap[a.name] = { name: a.name, diffMinsTotal: a.diffMinsTotal, done: a.done };
+    // C. Analisa Tepat Waktu (Berdasarkan Rata-rata Menit)
+    const disciplineMap: Record<string, {name: string, diffMinsTotal: number, totalExpected: number}> = {};
+    metricArray.forEach(a => {
+        if(!disciplineMap[a.name]) disciplineMap[a.name] = { name: a.name, diffMinsTotal: a.diffMinsTotal, totalExpected: a.totalExpected };
         else {
             disciplineMap[a.name].diffMinsTotal += a.diffMinsTotal;
-            disciplineMap[a.name].done += a.done;
+            disciplineMap[a.name].totalExpected += a.totalExpected;
         }
     });
 
     const disciplineList = Object.values(disciplineMap).map(a => {
-        return { name: a.name, avgDiff: a.diffMinsTotal / a.done, done: a.done };
+        return { name: a.name, avgDiff: a.diffMinsTotal / a.totalExpected };
     });
     
+    // Sort asc untuk Tepat Waktu (selisih menit terkecil)
     const topOnTime = [...disciplineList].sort((a,b) => a.avgDiff - b.avgDiff).slice(0, 5);
+    // Sort desc untuk Telat (selisih menit terbesar, dipenuhi oleh yang kosong)
     const topLate = [...disciplineList].sort((a,b) => b.avgDiff - a.avgDiff).slice(0, 5);
 
     return { 
@@ -569,7 +596,7 @@ export default function IbadahTracker() {
 
   const stats = calcStats();
 
-  // Helper untuk Footer Tabel Ketercapaian
+  // Helper Footer Tabel Ketercapaian
   const getSubDailyPct = (day: Date, acts: any[]) => {
      const today = new Date(); 
      const dateStr = getLocalDateStr(day);
@@ -591,7 +618,7 @@ export default function IbadahTracker() {
   };
 
   // ==========================================
-  // 8. FUNGSI SIMPAN & RESET KE FIREBASE
+  // 7. FUNGSI SIMPAN, RESET & BACKUP
   // ==========================================
   const saveToServer = async (isAutoSave = false) => {
     if (!user) return; 
@@ -627,7 +654,7 @@ export default function IbadahTracker() {
   const handleResetData = async (type: 'this_month' | 'last_month' | 'all') => {
       const msg = type === 'all' 
           ? "PERINGATAN FATAL: Seluruh data aktivitas & jurnal Anda akan dihapus permanen! Anda yakin?" 
-          : `Yakin ingin mereset data centangan untuk ${type === 'this_month' ? 'Bulan Ini' : 'Bulan Lalu'}?`;
+          : `Yakin ingin mereset data untuk ${type === 'this_month' ? 'Bulan Ini' : 'Bulan Lalu'}?`;
           
       if (!window.confirm(msg)) return;
 
@@ -655,8 +682,65 @@ export default function IbadahTracker() {
       showToast("Data berhasil direset. Silakan klik Simpan Perubahan.");
   };
 
+  const handleExportData = () => {
+      const backupData = {
+          exportDate: new Date().toISOString(),
+          user: user.email,
+          personalActivities,
+          joinedCommunityIds,
+          records,
+          journals
+      };
+      
+      const blob = new Blob([JSON.stringify(backupData)], {type: "application/json"});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Backup-TafkirTracker-${getLocalDateStr(new Date())}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast("File backup berhasil diunduh.");
+  };
+
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          try {
+              const data = JSON.parse(event.target?.result as string);
+              if (!data.records || !data.personalActivities) throw new Error("Format tidak valid");
+              
+              if (!window.confirm("Yakin ingin melakukan Import Restore? Data Anda saat ini akan digabungkan (merge) dengan data file.")) return;
+
+              // Merge Data
+              setPersonalActivities(prev => {
+                  const merged = [...prev];
+                  data.personalActivities.forEach((a:any) => { if(!merged.find(x => x.id === a.id)) merged.push(a); });
+                  return merged;
+              });
+              setJoinedCommunityIds(prev => Array.from(new Set([...prev, ...(data.joinedCommunityIds||[])])));
+              setJournals(prev => {
+                  const merged = [...prev];
+                  data.journals.forEach((j:any) => { if(!merged.find(x => x.id === j.id)) merged.push(j); });
+                  return merged;
+              });
+              setRecords(prev => ({ ...prev, ...data.records }));
+              
+              setHasUnsavedChanges(true);
+              setShowSettingsModal(false);
+              showToast("Data berhasil di-restore! Klik Simpan Perubahan.");
+          } catch(err) {
+              showToast("Gagal: File backup tidak valid.");
+          }
+          if (fileInputRef.current) fileInputRef.current.value = '';
+      };
+      reader.readAsText(file);
+  };
+
   // ==========================================
-  // 9. FITUR SUPER ADMIN & ADMIN
+  // 8. FITUR SUPER ADMIN & ADMIN
   // ==========================================
   const executeRoleChange = async () => {
      try {
@@ -664,9 +748,7 @@ export default function IbadahTracker() {
             role: roleConfirmModal.makeAdmin ? 'admin' : 'user' 
         }, { merge: true });
         showToast("Hak akses berhasil diubah!");
-     } catch(e) { 
-        showToast("Gagal mengubah hak akses."); 
-     }
+     } catch(e) { showToast("Gagal mengubah hak akses."); }
      setRoleConfirmModal({ show: false, targetUser: null, makeAdmin: false });
   };
 
@@ -674,9 +756,7 @@ export default function IbadahTracker() {
      try {
          await setDoc(doc(db, 'users', targetUid), { communityLimit: newLimit }, { merge: true });
          showToast("Limit Grup berhasil diupdate!");
-     } catch(e) {
-         showToast("Gagal update limit.");
-     }
+     } catch(e) { showToast("Gagal update limit."); }
   };
 
   const handleSaveCommunity = async () => {
@@ -698,29 +778,20 @@ export default function IbadahTracker() {
            const joinCode = `${prefix}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
            
            await addDoc(collection(db, 'communities'), { 
-               name: newCommName, 
-               ownerId: user.uid, 
-               ownerName: user.displayName || 'Admin', 
-               activities: selectedActs, 
-               joinCode: joinCode, 
-               createdAt: new Date().getTime() 
+               name: newCommName, ownerId: user.uid, ownerName: user.displayName || 'Admin', 
+               activities: selectedActs, joinCode: joinCode, createdAt: new Date().getTime() 
            });
            showToast(`Komunitas dibuat! Kode Join: ${joinCode}`);
         }
         setNewCommName(''); setSelectedActs([]); setEditCommId(null);
-     } catch (e) { 
-        showToast("Gagal menyimpan komunitas."); 
-     }
+     } catch (e) { showToast("Gagal menyimpan komunitas."); }
   };
 
   const handleDeleteCommunity = async (id: string) => {
      if (window.confirm("PERINGATAN: Yakin menghapus komunitas ini selamanya? \n\nSemua member akan otomatis dikeluarkan dari grup ini.")) {
         try { 
-            await deleteDoc(doc(db, 'communities', id)); 
-            showToast("Komunitas telah dihapus."); 
-        } catch(e) { 
-            showToast("Gagal menghapus."); 
-        }
+            await deleteDoc(doc(db, 'communities', id)); showToast("Komunitas telah dihapus."); 
+        } catch(e) { showToast("Gagal menghapus."); }
      }
   };
 
@@ -732,9 +803,7 @@ export default function IbadahTracker() {
           const newJoined = targetUser.joinedCommunities.filter((id: string) => id !== membersModal.commId);
           await setDoc(doc(db, 'users', targetUid), { joinedCommunities: newJoined }, { merge: true });
           showToast("Member berhasil dikeluarkan.");
-      } catch(e) {
-          showToast("Gagal mengeluarkan member.");
-      }
+      } catch(e) { showToast("Gagal mengeluarkan member."); }
   };
 
   const handleAddGlobalActivity = async () => {
@@ -744,11 +813,8 @@ export default function IbadahTracker() {
         await setDoc(doc(db, 'global_activities', newId), { 
             id: newId, name: newGlobalAct.name, time: newGlobalAct.time 
         });
-        setNewGlobalAct({ name: '', time: '00:00' }); 
-        showToast("Master Ibadah ditambahkan.");
-     } catch (e) { 
-        showToast("Gagal menambah master."); 
-     }
+        setNewGlobalAct({ name: '', time: '00:00' }); showToast("Master Ibadah ditambahkan.");
+     } catch (e) { showToast("Gagal menambah master."); }
   };
 
   const handleJoinCommunity = () => {
@@ -758,9 +824,7 @@ export default function IbadahTracker() {
      if (joinedCommunityIds.includes(comm.id)) return showToast("Sudah bergabung.");
      
      setJoinedCommunityIds([...joinedCommunityIds, comm.id]); 
-     setHasUnsavedChanges(true); 
-     setShowJoinModal(false); 
-     setJoinCodeInput('');
+     setHasUnsavedChanges(true); setShowJoinModal(false); setJoinCodeInput('');
      showToast(`Bergabung ke ${comm.name}! Klik Simpan Perubahan.`);
   };
 
@@ -771,25 +835,22 @@ export default function IbadahTracker() {
         const myComms = allCommunities.filter(c => c.ownerId === user.uid).map(c => c.id);
         result = allUsers.filter(u => u.joinedCommunities?.some((id:string) => myComms.includes(id)));
      }
-     
      if (adminSearch) {
          result = result.filter(u => 
              (u.displayName||'').toLowerCase().includes(adminSearch.toLowerCase()) || 
              (u.email||'').toLowerCase().includes(adminSearch.toLowerCase())
          );
      }
-     
      return result.sort((a,b) => adminSort === 'newest' ? (b.lastLogin || 0) - (a.lastLogin || 0) : (a.displayName||'').localeCompare(b.displayName||''));
   }, [allUsers, userRole, allCommunities, user, adminSearch, adminSort]);
 
-  // List Anggota untuk Pop-up Leaderboard / Manage Members
   const getCommunityMembersFull = (commId: string) => {
       return allUsers.filter(u => u.joinedCommunities?.includes(commId));
   };
 
 
   // ==========================================
-  // 10. FITUR JURNAL & EXPORT
+  // 9. FITUR JURNAL & EXPORT
   // ==========================================
   const handleLogout = () => {
     if (hasUnsavedChanges && !window.confirm("PERINGATAN: Ada perubahan yang belum disimpan. Yakin ingin keluar?")) return; 
@@ -842,7 +903,7 @@ export default function IbadahTracker() {
   };
 
   // ==========================================
-  // 11. GENERATOR DATA GRAFIK (CHARTS)
+  // 10. GENERATOR DATA GRAFIK (CHARTS)
   // ==========================================
   const linearRegression = (data: any[], key: string) => {
      const n = data.length; 
@@ -859,7 +920,6 @@ export default function IbadahTracker() {
      return {m, b};
   };
 
-  // A. Data Grafik Utama 3 Garis
   const mainChartData = useMemo(() => {
     const raw = daysInMonth.map((d, i) => {
       const p = getSubDailyPct(d, formattedPersonalActivities);
@@ -874,7 +934,6 @@ export default function IbadahTracker() {
       };
     });
     
-    // Regresi linier untuk mencari Trend
     const tPri = linearRegression(raw, 'pri');
     const tKom = linearRegression(raw, 'kom');
     const tGab = linearRegression(raw, 'gab');
@@ -887,7 +946,6 @@ export default function IbadahTracker() {
     }));
   }, [daysInMonth, records, formattedPersonalActivities, communityActivities, allCombinedActivities]);
 
-  // B. Data Week to Week
   const wtwData = useMemo(() => {
      const targetDate = new Date(); 
      targetDate.setMonth(targetDate.getMonth() + wtwMonthOffset);
@@ -918,14 +976,12 @@ export default function IbadahTracker() {
      }));
   }, [wtwMonthOffset, records, allCombinedActivities]);
 
-  // C. Data Month to Month
   const mtmData = useMemo(() => {
      const result = [];
      for(let i = mtmRange - 1; i >= 0; i--) {
         const d = new Date(); 
         d.setMonth(d.getMonth() - i);
         const mKey = `${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
-        
         const userProfileScore = user && allUsers.find(u => u.id === user.uid)?.[`score_${mKey}_gabungan`];
         
         result.push({ 
@@ -934,14 +990,12 @@ export default function IbadahTracker() {
             skor: userProfileScore || 0 
         });
      }
-     
      const tLine = linearRegression(result, 'skor');
      return result.map(d => ({ 
          ...d, 
          trend: Math.max(0, Math.min(100, Math.round(tLine.m * d.x + tLine.b))) 
      }));
   }, [mtmRange, user, allUsers]);
-
 
   // ==========================================
   // RENDER APP STATE
@@ -973,7 +1027,7 @@ export default function IbadahTracker() {
         
         {/* ================= MODALS ================= */}
 
-        {/* MODAL SETTINGS (RESET DATA & LOGOUT) */}
+        {/* MODAL SETTINGS (RESET DATA, EXPORT/IMPORT & LOGOUT) */}
         {showSettingsModal && (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
               <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl relative text-center">
@@ -982,12 +1036,32 @@ export default function IbadahTracker() {
                      <Settings className="text-slate-600" size={32}/>
                  </div>
                  <h2 className="text-2xl font-bold text-slate-800 mb-2">Pengaturan Akun</h2>
-                 <p className="text-slate-500 text-sm mb-8 border-b pb-4">Kelola data dan sesi aplikasi Anda.</p>
+                 <p className="text-slate-500 text-sm mb-6 border-b pb-4">Kelola data dan sesi aplikasi Anda.</p>
                  
-                 <div className="space-y-3 mb-8">
-                     <button onClick={() => handleResetData('this_month')} className="w-full bg-orange-50 border border-orange-200 text-orange-700 font-bold py-3 rounded-xl hover:bg-orange-100 transition-colors">Reset Laporan Bulan Ini</button>
-                     <button onClick={() => handleResetData('last_month')} className="w-full bg-orange-50 border border-orange-200 text-orange-700 font-bold py-3 rounded-xl hover:bg-orange-100 transition-colors">Reset Laporan Bulan Lalu</button>
-                     <button onClick={() => handleResetData('all')} className="w-full bg-red-50 border border-red-200 text-red-600 font-black py-3 rounded-xl hover:bg-red-100 transition-colors flex items-center justify-center gap-2"><AlertTriangle size={18}/> Mulai Baru (Reset Total)</button>
+                 <div className="space-y-6 mb-8 text-left">
+                     {/* Export/Import Block */}
+                     <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl">
+                         <h4 className="font-bold text-blue-800 mb-2 flex items-center gap-2 text-sm"><FileUp size={16}/> Backup & Restore</h4>
+                         <p className="text-[10px] text-blue-600 mb-3">Simpan seluruh rekam jejak Anda ke dalam file, atau pulihkan data dari file backup sebelumnya.</p>
+                         <div className="flex gap-2">
+                            <button onClick={handleExportData} className="flex-1 bg-white border border-blue-200 text-blue-700 font-bold py-2 rounded-lg hover:bg-blue-100 transition-colors text-xs flex items-center justify-center gap-1"><FileDown size={14}/> Export Backup</button>
+                            
+                            <label className="flex-1 bg-white border border-blue-200 text-blue-700 font-bold py-2 rounded-lg hover:bg-blue-100 transition-colors text-xs flex items-center justify-center gap-1 cursor-pointer">
+                                <FileUp size={14}/> Import Restore
+                                <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImportData} />
+                            </label>
+                         </div>
+                     </div>
+
+                     {/* Reset Block */}
+                     <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl">
+                         <h4 className="font-bold text-orange-800 mb-2 flex items-center gap-2 text-sm"><RefreshCw size={16}/> Sapu Bersih (Reset)</h4>
+                         <div className="space-y-2">
+                             <button onClick={() => handleResetData('this_month')} className="w-full bg-white border border-orange-200 text-orange-700 font-bold py-2 rounded-lg hover:bg-orange-100 transition-colors text-xs">Reset Laporan Bulan Ini</button>
+                             <button onClick={() => handleResetData('last_month')} className="w-full bg-white border border-orange-200 text-orange-700 font-bold py-2 rounded-lg hover:bg-orange-100 transition-colors text-xs">Reset Laporan Bulan Lalu</button>
+                             <button onClick={() => handleResetData('all')} className="w-full bg-red-600 text-white font-black py-2 rounded-lg hover:bg-red-700 transition-colors text-xs flex items-center justify-center gap-1 mt-2"><AlertTriangle size={14}/> Mulai Baru (Reset Total)</button>
+                         </div>
+                     </div>
                  </div>
                  
                  <button onClick={handleLogout} className="w-full bg-slate-800 text-white font-bold py-3 rounded-xl hover:bg-slate-900 transition-colors flex items-center justify-center gap-2"><LogOut size={18}/> Keluar Aplikasi</button>
@@ -1004,7 +1078,7 @@ export default function IbadahTracker() {
                     <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center"><img src="/logo.png" alt="Logo" className="w-8 h-8" /></div>
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Tracker IbadahKU</h2>
-                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 20.08.26 rev6 (Enterprise)</p>
+                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 20.08.26 rev8 (Enterprise)</p>
                     </div>
                  </div>
                  
@@ -1016,9 +1090,9 @@ export default function IbadahTracker() {
                        <ul className="text-[11px] text-slate-600 space-y-3">
                           <li className="flex gap-2"><Check size={14} className="text-green-500 shrink-0"/> Buat & kelola aktivitas pribadi.</li>
                           <li className="flex gap-2"><Check size={14} className="text-green-500 shrink-0"/> Gabung ke komunitas via Kode.</li>
-                          <li className="flex gap-2"><Check size={14} className="text-green-500 shrink-0"/> Linked Activities (Sinkronisasi centang).</li>
+                          <li className="flex gap-2"><Check size={14} className="text-green-500 shrink-0"/> Linked Activities & Copy-Paste Tabel.</li>
                           <li className="flex gap-2"><Check size={14} className="text-green-500 shrink-0"/> Podium Leaderboard Interaktif.</li>
-                          <li className="flex gap-2"><Check size={14} className="text-green-500 shrink-0"/> Analisa Grafik Gabungan & Disiplin.</li>
+                          <li className="flex gap-2"><Check size={14} className="text-green-500 shrink-0"/> Backup & Restore Data Mandiri.</li>
                           <li className="flex gap-2 text-slate-400 opacity-50"><X size={14} className="text-slate-400 shrink-0"/> Buat Komunitas Sendiri.</li>
                           <li className="flex gap-2 text-slate-400 opacity-50"><X size={14} className="text-slate-400 shrink-0"/> Akses Admin Dashboard.</li>
                        </ul>
@@ -1265,7 +1339,7 @@ export default function IbadahTracker() {
                                           <button onClick={()=>{setEditCommId(c.id); setNewCommName(c.name); setSelectedActs(c.activities||[]); setAdminTab('communities');}} className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 p-1.5 rounded-lg transition-colors"><Edit3 size={14}/></button>
                                           <button onClick={()=>handleDeleteCommunity(c.id)} className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors"><Trash2 size={14}/></button>
                                       </div>
-                                      <p className="text-[10px] text-slate-500 font-bold uppercase mb-2">{c.activities?.length || 0} Aktivitas Wajib</p>
+                                      <p className="text-[10px] text-slate-400 font-bold uppercase mb-2">{c.activities?.length || 0} Aktivitas Wajib</p>
                                       
                                       <button onClick={() => setMembersModal({show:true, commId: c.id, commName: c.name, isAdminView: true})} className="text-xs bg-slate-50 border border-slate-200 text-slate-600 font-bold px-3 py-1.5 rounded-lg flex items-center gap-2 hover:bg-slate-100 transition-colors">
                                           <Users size={14}/> Kelola {getCommunityMembersFull(c.id).length} Anggota
@@ -1411,24 +1485,24 @@ export default function IbadahTracker() {
                </div>
             </div>
             
-            {/* CONTAINER TABEL DENGAN SCROLL & STICKY HEADER (Diberi pb-32 agar tooltip tidak terpotong ke bawah) */}
-            <div className="overflow-x-auto overflow-y-visible max-h-[75vh] pb-40 custom-scrollbar" ref={tableContainerRef}>
-              <table className="w-full text-sm">
+            {/* CONTAINER TABEL COMPACT (Tanpa pb berlebih, scroll responsif) */}
+            <div className="overflow-x-auto max-h-[70vh] custom-scrollbar" ref={tableContainerRef}>
+              <table className="w-full text-xs">
                 
                 {/* --- HEADER STICKY --- */}
                 <thead className="sticky top-0 z-40 bg-slate-100 shadow-md">
                   <tr>
-                    <th className="text-left text-slate-800 font-black p-4 sticky left-0 top-0 z-50 bg-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[200px] sm:min-w-[300px]">
+                    <th className="text-left text-slate-800 font-black p-3 sticky left-0 top-0 z-50 bg-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[200px] sm:min-w-[280px]">
                         Ibadah & Aktivitas Positif KU
                     </th>
                     {daysInMonth.map(d => {
                       const isActToday = getLocalDateStr(d) === getLocalDateStr(new Date());
                       return (
-                         <th key={d.toISOString()} ref={isActToday ? todayColumnRef : null} className={`p-3 text-center font-semibold min-w-[50px] border-r border-slate-200 transition-colors ${isActToday ? 'bg-orange-100 text-orange-800 border-b-4 border-orange-500' : 'text-slate-600'}`}>
+                         <th key={d.toISOString()} ref={isActToday ? todayColumnRef : null} className={`p-2 text-center min-w-[36px] border-r border-slate-200 transition-colors ${isActToday ? 'bg-orange-100 text-orange-800 border-b-2 border-orange-500' : 'text-slate-600'}`}>
                             <div className="flex flex-col items-center">
                                {/* NAMA HARI DI ATAS TANGGAL */}
-                               <span className={`text-[9px] uppercase tracking-widest mb-1 ${isActToday ? 'font-black text-orange-600' : 'font-bold'}`}>{isActToday ? 'Hari Ini' : getDayName(d)}</span>
-                               <span className={`text-lg ${isActToday ? 'font-black' : 'font-bold'}`}>{d.getDate()}</span>
+                               <span className={`text-[8px] uppercase tracking-widest mb-0.5 ${isActToday ? 'font-black text-orange-600' : 'font-semibold text-slate-400'}`}>{getDayName(d)}</span>
+                               <span className={`text-sm ${isActToday ? 'font-black' : 'font-bold'}`}>{d.getDate()}</span>
                             </div>
                          </th>
                       )
@@ -1439,73 +1513,77 @@ export default function IbadahTracker() {
                 {/* ================= BODY KOMITMEN PRIBADI ================= */}
                 <tbody>
                   <tr>
-                     <td colSpan={daysInMonth.length + 1} className="bg-blue-50 border-b-2 border-blue-200 p-3 sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                     <td colSpan={daysInMonth.length + 1} className="bg-blue-50 border-b border-blue-200 p-2 sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                          <div className="flex items-center gap-2 pl-2">
-                             <div className="w-2 h-2 rounded-full bg-blue-600 shadow-[0_0_5px_rgba(37,99,235,0.8)]"></div>
-                             <span className="font-black text-blue-900 text-xs uppercase tracking-widest">Komitmen Pribadi</span>
+                             <div className="w-1.5 h-1.5 rounded-full bg-blue-600 shadow-[0_0_5px_rgba(37,99,235,0.8)]"></div>
+                             <span className="font-black text-blue-900 text-[10px] uppercase tracking-widest">Komitmen Pribadi</span>
+                             
+                             {/* TOOLTIP DIPERBAIKI (Z-Index tinggi, origin mengambang di atas) */}
                              <div className="relative group/info cursor-help inline-block ml-1">
-                                 <Info size={14} className="text-blue-500" />
-                                 {/* Tooltip Hover diarahkan ke kanan dan z-[999] */}
-                                 <div className="absolute hidden group-hover/info:block top-1/2 -translate-y-1/2 left-full ml-3 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[999] leading-relaxed">
+                                 <Info size={12} className="text-blue-500" />
+                                 <div className="absolute hidden group-hover/info:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
                                      Anda bebas menambah, memilih, mengubah jam, dan menghapus aktivitas di blok ini sesuka hati Anda.
-                                     <div className="absolute top-1/2 -translate-y-1/2 right-full -ml-1 w-3 h-3 bg-slate-900 rotate-45"></div>
+                                     <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 rotate-45"></div>
                                  </div>
                              </div>
                          </div>
                      </td>
                   </tr>
                   {formattedPersonalActivities.length === 0 && (
-                     <tr><td colSpan={daysInMonth.length + 1} className="p-6 text-center text-slate-400 font-medium italic text-xs bg-white">Belum ada komitmen pribadi. Klik tombol "+ Buat Sendiri" di atas.</td></tr>
+                     <tr><td colSpan={daysInMonth.length + 1} className="p-4 text-center text-slate-400 font-medium italic text-[10px] bg-white">Belum ada komitmen pribadi. Klik tombol "+ Buat Sendiri" di atas.</td></tr>
                   )}
                   {formattedPersonalActivities.map((act) => {
                      const isSafe = getDailyEvaluation(act.id);
                      return (
                     <tr key={act.id} className="bg-white hover:bg-orange-50/50 border-b border-slate-100 transition-colors">
-                      <td className="p-3 font-medium sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] bg-white">
-                        <div className="flex items-center gap-3 pl-2">
-                           <div className="flex flex-col gap-1.5 opacity-50 hover:opacity-100 transition-opacity">
-                               <button onClick={() => setActModal({ show:true, mode:'edit', tab:'global', id:act.id, name:act.name, time:act.time })} className="text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 p-1 rounded-md border border-transparent hover:border-blue-200 transition-all"><Edit3 size={14}/></button>
-                               <button onClick={() => deleteActivity(act.id)} className="text-slate-400 hover:text-red-600 bg-slate-50 hover:bg-red-50 p-1 rounded-md border border-transparent hover:border-red-200 transition-all"><Trash2 size={14}/></button>
+                      <td className="p-2 font-medium sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] bg-white">
+                        <div className="flex items-center gap-2 pl-1">
+                           <div className="flex flex-col gap-1 opacity-50 hover:opacity-100 transition-opacity">
+                               <button onClick={() => setActModal({ show:true, mode:'edit', tab:'global', id:act.id, name:act.name, time:act.time })} className="text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 p-1 rounded-md border border-transparent hover:border-blue-200 transition-all" title="Edit Aktivitas"><Edit3 size={12}/></button>
+                               <button onClick={() => deleteActivity(act.id)} className="text-slate-400 hover:text-red-600 bg-slate-50 hover:bg-red-50 p-1 rounded-md border border-transparent hover:border-red-200 transition-all" title="Hapus Aktivitas"><Trash2 size={12}/></button>
+                               {/* TOMBOL COPY PASTE BARU */}
+                               <button onClick={() => handleCopyPattern(act.id)} className="text-slate-400 hover:text-orange-600 bg-slate-50 hover:bg-orange-50 p-1 rounded-md border border-transparent hover:border-orange-200 transition-all mt-1" title="Copy Pola Baris Ini"><ClipboardCopy size={12}/></button>
+                               {copiedPattern && <button onClick={() => handlePastePattern(act.id, act.time)} className="text-orange-500 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 p-1 rounded-md border border-orange-200 transition-all" title="Paste Pola ke Baris Ini"><ClipboardPaste size={12}/></button>}
                            </div>
-                           <div className="flex flex-col items-start min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                  <span className={`text-sm font-black truncate ${!isSafe ? 'text-red-600' : 'text-slate-700'}`}>{act.name}</span>
+                           <div className="flex flex-col items-start min-w-0 flex-1 ml-1">
+                              <div className="flex items-center gap-1.5">
+                                  <span className={`text-xs font-bold truncate ${!isSafe ? 'text-red-600' : 'text-slate-700'}`}>{act.name}</span>
                                   {!isSafe && (
                                       <div className="relative group/alert cursor-help">
-                                          <AlertTriangle size={14} className="text-red-500 animate-pulse" />
-                                          <div className="absolute hidden group-hover/alert:block top-1/2 -translate-y-1/2 left-full ml-2 w-48 bg-red-900 text-white text-[10px] font-bold text-center p-2.5 rounded-lg shadow-xl z-[999] tracking-wide leading-relaxed">
+                                          <AlertTriangle size={12} className="text-red-500 animate-pulse" />
+                                          <div className="absolute hidden group-hover/alert:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-red-900 text-white text-[9px] font-bold text-center p-2 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed">
                                               Pelaksanaan di bawah 50% dari target hari yang telah berlalu!
-                                              <div className="absolute top-1/2 -translate-y-1/2 right-full -ml-1 w-2 h-2 bg-red-900 rotate-45"></div>
+                                              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-red-900 rotate-45"></div>
                                           </div>
                                       </div>
                                   )}
                               </div>
-                              <span className="text-[10px] text-blue-700 font-bold bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md mt-1.5 flex items-center gap-1 w-max shadow-sm"><Clock size={10}/> {act.time}</span>
+                              <span className="text-[9px] text-blue-700 font-bold bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-md mt-1 flex items-center gap-1 w-max shadow-sm"><Clock size={9}/> {act.time}</span>
                            </div>
                         </div>
                       </td>
                       {daysInMonth.map(d => {
                         const rec = records[`${getLocalDateStr(d)}-${act.id}`];
                         return (
-                          <td key={`${d}-${act.id}`} className="p-2 text-center relative group cursor-pointer border-r border-slate-100" onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
-                            {rec?.status === 'done' ? <div className="w-7 h-7 mx-auto bg-green-100 rounded-lg flex items-center justify-center border border-green-300 shadow-inner"><Check className="text-green-600" size={16} strokeWidth={3}/></div>
-                            : rec?.status === 'missed' ? <div className="w-7 h-7 mx-auto bg-red-50 rounded-lg flex items-center justify-center border border-red-200"><X className="text-red-500" size={16} strokeWidth={3}/></div>
-                            : <div className="w-7 h-7 mx-auto rounded-lg bg-slate-50 border-2 border-slate-200 hover:border-orange-400 hover:bg-orange-50 transition-colors" />}
+                          <td key={`${d}-${act.id}`} className="p-1 text-center relative group cursor-pointer border-r border-slate-100" onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
+                            {rec?.status === 'done' ? <div className="w-5 h-5 mx-auto bg-green-100 rounded flex items-center justify-center border border-green-300 shadow-inner"><Check className="text-green-600" size={12} strokeWidth={3}/></div>
+                            : rec?.status === 'missed' ? <div className="w-5 h-5 mx-auto bg-red-50 rounded flex items-center justify-center border border-red-200"><X className="text-red-500" size={12} strokeWidth={3}/></div>
+                            : <div className="w-5 h-5 mx-auto rounded bg-slate-50 border border-slate-200 hover:border-orange-400 hover:bg-orange-50 transition-colors" />}
                             
-                            {/* TOOLTIP REPORT INFO - Menghindari overflow hidden dengan popup ke atas atau ke samping */}
+                            {/* TOOLTIP REPORT INFO MENGAMBANG KE ATAS */}
                             {rec && (
-                                <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-3 bg-slate-900 border border-slate-700 text-white text-[11px] p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-48 z-[999] pointer-events-none">
-                                    <p className="font-black text-orange-400 border-b border-slate-700 pb-1.5 mb-2 truncate">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
+                                <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 bg-slate-900 border border-slate-700 text-white text-[10px] p-2.5 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-44 z-[9999] pointer-events-none">
+                                    <p className="font-black text-orange-400 border-b border-slate-700 pb-1 mb-1.5 truncate">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
                                     <div className="flex justify-between items-center mb-1">
-                                        <span className="text-slate-400 font-medium">Jam Target:</span>
+                                        <span className="text-slate-400 font-medium">Target:</span>
                                         <span className="font-bold">{act.time}</span>
                                     </div>
-                                    <div className="flex justify-between items-center mb-2 pb-2 border-b border-slate-700/50">
-                                        <span className="text-slate-400 font-medium">Jam Lapor:</span>
+                                    <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-slate-700/50">
+                                        <span className="text-slate-400 font-medium">Lapor:</span>
                                         <span className="font-bold text-white">{new Date(rec.timestamp).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</span>
                                     </div>
                                     <div className="text-center w-full">
-                                        {getIsOnTime(rec.timestamp, d, act.time) ? <span className="bg-green-900/50 text-green-400 border border-green-800 px-3 py-1 rounded-md font-black tracking-widest text-[9px] uppercase block w-full">Tepat Waktu</span> : <span className="bg-orange-900/50 text-orange-400 border border-orange-800 px-3 py-1 rounded-md font-black tracking-widest text-[9px] uppercase block w-full">Rapelan</span>}
+                                        {getIsOnTime(rec.timestamp, d, act.time) ? <span className="bg-green-900/50 text-green-400 border border-green-800 px-2 py-0.5 rounded font-black tracking-widest text-[8px] uppercase block w-full">Tepat Waktu</span> : <span className="bg-orange-900/50 text-orange-400 border border-orange-800 px-2 py-0.5 rounded font-black tracking-widest text-[8px] uppercase block w-full">Rapelan</span>}
                                     </div>
                                     <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 border-b border-r border-slate-700 rotate-45"></div>
                                 </div>
@@ -1515,11 +1593,10 @@ export default function IbadahTracker() {
                       })}
                     </tr>
                   )})}
-                  {/* BARIS SUB-TOTAL PRIBADI */}
-                  <tr className="bg-blue-50/50 border-y-2 border-blue-200 shadow-sm">
-                    <td className="p-3 text-right font-black text-blue-900 sticky left-0 z-30 bg-blue-100 text-[10px] uppercase tracking-widest shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Ketercapaian Pribadi:</td>
+                  <tr className="bg-blue-50/50 border-y border-blue-200 shadow-sm">
+                    <td className="p-2 text-right font-black text-blue-900 sticky left-0 z-30 bg-blue-100 text-[9px] uppercase tracking-widest shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Ketercapaian Pribadi:</td>
                     {daysInMonth.map(d => (
-                        <td key={d.toISOString()} className="p-3 text-center font-black text-blue-700 text-xs border-r border-blue-200/50">{getSubDailyPct(d, formattedPersonalActivities)}</td>
+                        <td key={d.toISOString()} className="p-2 text-center font-black text-blue-700 text-[10px] border-r border-blue-200/50">{getSubDailyPct(d, formattedPersonalActivities)}</td>
                     ))}
                   </tr>
                 </tbody>
@@ -1527,69 +1604,74 @@ export default function IbadahTracker() {
                 {/* ================= BODY KOMITMEN KOMUNITAS ================= */}
                 <tbody>
                   <tr>
-                     <td colSpan={daysInMonth.length + 1} className="bg-purple-50 border-b-2 border-purple-200 p-3 sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] mt-4">
+                     <td colSpan={daysInMonth.length + 1} className="bg-purple-50 border-b border-purple-200 p-2 sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] mt-2">
                          <div className="flex items-center gap-2 pl-2">
-                             <div className="w-2 h-2 rounded-full bg-purple-600 shadow-[0_0_5px_rgba(147,51,234,0.8)]"></div>
-                             <span className="font-black text-purple-900 text-xs uppercase tracking-widest">Komitmen Komunitas</span>
+                             <div className="w-1.5 h-1.5 rounded-full bg-purple-600 shadow-[0_0_5px_rgba(147,51,234,0.8)]"></div>
+                             <span className="font-black text-purple-900 text-[10px] uppercase tracking-widest">Komitmen Komunitas</span>
+                             
                              <div className="relative group/info cursor-help inline-block ml-1">
-                                 <Info size={14} className="text-purple-500" />
-                                 <div className="absolute hidden group-hover/info:block top-1/2 -translate-y-1/2 left-full ml-3 w-60 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[999] leading-relaxed">
+                                 <Info size={12} className="text-purple-500" />
+                                 <div className="absolute hidden group-hover/info:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
                                      Blok ini aktif saat Anda bergabung dengan grup. Daftar aktivitas beserta jam targetnya diatur secara terpusat oleh Admin grup Anda.
-                                     <div className="absolute top-1/2 -translate-y-1/2 right-full -ml-1 w-3 h-3 bg-slate-900 rotate-45"></div>
+                                     <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 rotate-45"></div>
                                  </div>
                              </div>
                          </div>
                      </td>
                   </tr>
                   {communityActivities.length === 0 && (
-                     <tr><td colSpan={daysInMonth.length + 1} className="p-6 text-center text-slate-400 font-medium italic text-xs bg-slate-50">Anda belum bergabung di komunitas manapun. Klik "Gabung Grup".</td></tr>
+                     <tr><td colSpan={daysInMonth.length + 1} className="p-4 text-center text-slate-400 font-medium italic text-[10px] bg-slate-50">Anda belum bergabung di komunitas manapun.</td></tr>
                   )}
                   {communityActivities.map((act: any) => {
                      const isSafe = getDailyEvaluation(act.id);
                      return (
                     <tr key={act.uniqueKey} className="bg-slate-50 hover:bg-orange-50/50 border-b border-slate-100 transition-colors">
-                      <td className="p-3 font-medium sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] bg-[#f8fafc]">
-                        <div className="flex items-center gap-2 pl-2 border-l-2 border-purple-300">
-                           <div className="flex flex-col min-w-0 pl-2">
-                              <div className="flex items-center gap-2">
-                                  <span className={`text-sm font-black truncate ${!isSafe ? 'text-red-600' : 'text-slate-800'}`}>{act.name}</span>
+                      <td className="p-2 font-medium sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] bg-[#f8fafc]">
+                        <div className="flex items-center gap-2 pl-1 border-l-[3px] border-purple-300">
+                           <div className="flex flex-col gap-1 opacity-50 hover:opacity-100 transition-opacity">
+                               <button onClick={() => handleCopyPattern(act.id)} className="text-slate-400 hover:text-orange-600 bg-white hover:bg-orange-50 p-1 rounded-md border border-transparent hover:border-orange-200 transition-all" title="Copy Pola Baris Ini"><ClipboardCopy size={12}/></button>
+                               {copiedPattern && <button onClick={() => handlePastePattern(act.id, act.time)} className="text-orange-500 hover:text-orange-700 bg-orange-50 hover:bg-orange-100 p-1 rounded-md border border-orange-200 transition-all" title="Paste Pola ke Baris Ini"><ClipboardPaste size={12}/></button>}
+                           </div>
+                           <div className="flex flex-col min-w-0 pl-1 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                  <span className={`text-xs font-bold truncate ${!isSafe ? 'text-red-600' : 'text-slate-800'}`}>{act.name}</span>
                                   {!isSafe && (
                                       <div className="relative group/alert cursor-help">
-                                          <AlertTriangle size={14} className="text-red-500 animate-pulse" />
-                                          <div className="absolute hidden group-hover/alert:block top-1/2 -translate-y-1/2 left-full ml-2 w-48 bg-red-900 text-white text-[10px] font-bold text-center p-2.5 rounded-lg shadow-xl z-[999] tracking-wide leading-relaxed">
+                                          <AlertTriangle size={12} className="text-red-500 animate-pulse" />
+                                          <div className="absolute hidden group-hover/alert:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-red-900 text-white text-[9px] font-bold text-center p-2 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed">
                                               Pelaksanaan di bawah 50% dari target hari yang telah berlalu!
-                                              <div className="absolute top-1/2 -translate-y-1/2 right-full -ml-1 w-2 h-2 bg-red-900 rotate-45"></div>
+                                              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-red-900 rotate-45"></div>
                                           </div>
                                       </div>
                                   )}
                               </div>
-                              <span className="text-[10px] text-purple-700 font-bold bg-purple-100 border border-purple-200 px-2 py-0.5 rounded-md mt-1.5 flex items-center gap-1 w-max shadow-sm"><Clock size={10}/> {act.time}</span>
-                              <span className="text-[9px] text-slate-500 font-bold uppercase mt-1.5 flex items-center gap-1.5 truncate max-w-[200px]"><Users size={12} className="shrink-0 text-slate-400"/> {act.communities.join(', ')}</span>
+                              <span className="text-[9px] text-purple-700 font-bold bg-purple-100 border border-purple-200 px-1.5 py-0.5 rounded-md mt-1 flex items-center gap-1 w-max shadow-sm"><Clock size={9}/> {act.time}</span>
+                              <span className="text-[8px] text-slate-500 uppercase font-semibold mt-1 flex items-center gap-1 truncate max-w-[150px]"><Users size={10} className="shrink-0 text-slate-400"/> {act.communities.join(', ')}</span>
                            </div>
                         </div>
                       </td>
                       {daysInMonth.map(d => {
                         const rec = records[`${getLocalDateStr(d)}-${act.id}`];
                         return (
-                          <td key={`${d}-${act.id}`} className="p-2 text-center relative group cursor-pointer border-r border-slate-100/50" onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
-                            {rec?.status === 'done' ? <div className="w-7 h-7 mx-auto bg-green-100 rounded-lg flex items-center justify-center border border-green-300 shadow-inner"><Check className="text-green-600" size={16} strokeWidth={3}/></div>
-                            : rec?.status === 'missed' ? <div className="w-7 h-7 mx-auto bg-red-50 rounded-lg flex items-center justify-center border border-red-200"><X className="text-red-500" size={16} strokeWidth={3}/></div>
-                            : <div className="w-7 h-7 mx-auto rounded-lg bg-white border-2 border-slate-200 hover:border-orange-400 hover:bg-orange-50 transition-colors" />}
+                          <td key={`${d}-${act.id}`} className="p-1 text-center relative group cursor-pointer border-r border-slate-100/50" onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
+                            {rec?.status === 'done' ? <div className="w-5 h-5 mx-auto bg-green-100 rounded flex items-center justify-center border border-green-300 shadow-inner"><Check className="text-green-600" size={12} strokeWidth={3}/></div>
+                            : rec?.status === 'missed' ? <div className="w-5 h-5 mx-auto bg-red-50 rounded flex items-center justify-center border border-red-200"><X className="text-red-500" size={12} strokeWidth={3}/></div>
+                            : <div className="w-5 h-5 mx-auto rounded bg-white border hover:border-orange-300" />}
                             
                             {/* TOOLTIP REPORT INFO */}
                             {rec && (
-                                <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-3 bg-slate-900 border border-slate-700 text-white text-[11px] p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-48 z-[999] pointer-events-none">
-                                    <p className="font-black text-orange-400 border-b border-slate-700 pb-1.5 mb-2 truncate">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
+                                <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 bg-slate-900 border border-slate-700 text-white text-[10px] p-2.5 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-44 z-[9999] pointer-events-none">
+                                    <p className="font-black text-orange-400 border-b border-slate-700 pb-1 mb-1.5 truncate">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
                                     <div className="flex justify-between items-center mb-1">
-                                        <span className="text-slate-400 font-medium">Jam Target:</span>
+                                        <span className="text-slate-400 font-medium">Target:</span>
                                         <span className="font-bold">{act.time}</span>
                                     </div>
-                                    <div className="flex justify-between items-center mb-2 pb-2 border-b border-slate-700/50">
-                                        <span className="text-slate-400 font-medium">Jam Lapor:</span>
+                                    <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-slate-700/50">
+                                        <span className="text-slate-400 font-medium">Lapor:</span>
                                         <span className="font-bold text-white">{new Date(rec.timestamp).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</span>
                                     </div>
                                     <div className="text-center w-full">
-                                        {getIsOnTime(rec.timestamp, d, act.time) ? <span className="bg-green-900/50 text-green-400 border border-green-800 px-3 py-1 rounded-md font-black tracking-widest text-[9px] uppercase block w-full">Tepat Waktu</span> : <span className="bg-orange-900/50 text-orange-400 border border-orange-800 px-3 py-1 rounded-md font-black tracking-widest text-[9px] uppercase block w-full">Rapelan</span>}
+                                        {getIsOnTime(rec.timestamp, d, act.time) ? <span className="bg-green-900/50 text-green-400 border border-green-800 px-2 py-0.5 rounded font-black tracking-widest text-[8px] uppercase block w-full">Tepat Waktu</span> : <span className="bg-orange-900/50 text-orange-400 border border-orange-800 px-2 py-0.5 rounded font-black tracking-widest text-[8px] uppercase block w-full">Rapelan</span>}
                                     </div>
                                     <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 border-b border-r border-slate-700 rotate-45"></div>
                                 </div>
@@ -1599,20 +1681,20 @@ export default function IbadahTracker() {
                       })}
                     </tr>
                   )})}
-                  <tr className="bg-purple-50/50 border-y-2 border-purple-200 shadow-sm">
-                    <td className="p-3 text-right font-black text-purple-900 sticky left-0 z-30 bg-purple-100 text-[10px] uppercase tracking-widest shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Ketercapaian Komunitas:</td>
+                  <tr className="bg-purple-50/50 border-y border-purple-200 shadow-sm">
+                    <td className="p-2 text-right font-black text-purple-900 sticky left-0 z-30 bg-purple-100 text-[9px] uppercase tracking-widest shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Ketercapaian Komunitas:</td>
                     {daysInMonth.map(d => (
-                        <td key={d.toISOString()} className="p-3 text-center font-black text-purple-700 text-xs border-r border-purple-200/50">{getSubDailyPct(d, communityActivities)}</td>
+                        <td key={d.toISOString()} className="p-2 text-center font-black text-purple-700 text-[10px] border-r border-purple-200/50">{getSubDailyPct(d, communityActivities)}</td>
                     ))}
                   </tr>
                 </tbody>
 
                 {/* ================= FOOTER GABUNGAN ================= */}
                 <tfoot>
-                  <tr className="bg-slate-200 border-t-4 border-slate-300">
-                    <td className="p-4 sm:p-5 text-right font-black text-slate-900 sticky left-0 z-30 bg-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-xs sm:text-sm uppercase tracking-widest">Ketercapaian Gabungan:</td>
+                  <tr className="bg-slate-200 border-t-2 border-slate-300">
+                    <td className="p-3 sm:p-4 text-right font-black text-slate-900 sticky left-0 z-30 bg-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] text-xs uppercase tracking-widest">Ketercapaian Gabungan:</td>
                     {daysInMonth.map(d => (
-                        <td key={d.toISOString()} className="p-4 text-center font-black text-slate-800 border-r border-slate-300 text-sm sm:text-base bg-slate-100">{getDailyPercentage(d)}</td>
+                        <td key={d.toISOString()} className="p-2 text-center font-black text-slate-800 border-r border-slate-300 text-sm bg-slate-100">{getDailyPercentage(d)}</td>
                     ))}
                   </tr>
                 </tfoot>
@@ -1620,14 +1702,16 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          {/* ================= GAMIFIKASI (PODIUM STYLE) ================= */}
+          {/* ================= GAMIFIKASI (PODIUM GRID) ================= */}
           {joinedCommunityIds.length > 0 && (
-             <div className="space-y-8 pt-4">
+             <div className="space-y-6 pt-6">
                 <div className="flex items-center gap-3">
                    <Award size={28} className="text-yellow-500" strokeWidth={2.5}/>
                    <h2 className="text-2xl font-black text-slate-800">Leaderboard Komunitas</h2>
                 </div>
                 
+                {/* GRID LAYOUT AGAR TIDAK MEMAKAN RUANG VERTIKAL */}
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                 {joinedCommunityIds.map(commId => {
                    const comm = allCommunities.find(c => c.id === commId); 
                    if (!comm) return null;
@@ -1636,89 +1720,74 @@ export default function IbadahTracker() {
                    const activeTab = leaderboardTabs[commId] || 'monthly';
                    let sKey = `score_${String(currentDate.getMonth() + 1).padStart(2, '0')}-${currentDate.getFullYear()}_comm_${commId}`;
                    
-                   // Dapatkan Top 5
                    const boardData = allUsers.map(u => ({ name: u.displayName || 'Anonim', score: u[sKey] || 0 })).filter(u => u.score > 0).sort((a,b) => b.score - a.score).slice(0, 5);
                    const top3 = boardData.slice(0, 3);
                    const rest = boardData.slice(3, 5);
 
                    return (
-                   <div key={commId} className="bg-gradient-to-b from-slate-900 to-[#0f172a] rounded-3xl shadow-2xl p-6 md:p-8 border border-slate-700/50 relative overflow-hidden">
-                      {/* Glow Effect */}
-                      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-48 bg-blue-500/10 rounded-full blur-[100px] pointer-events-none"></div>
+                   <div key={commId} className="bg-gradient-to-b from-slate-900 to-[#0f172a] rounded-3xl shadow-xl p-5 md:p-6 border border-slate-700/50 relative overflow-hidden flex flex-col h-full">
+                      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-blue-500/10 rounded-full blur-[80px] pointer-events-none"></div>
                       
-                      <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-6 mb-10 border-b border-slate-700/50 pb-6">
-                         <div className="text-center md:text-left">
-                            <h3 className="text-2xl font-black text-white flex items-center justify-center md:justify-start gap-3"><Medal className="text-blue-400" size={28}/> {comm.name}</h3>
-                            <button onClick={() => setMembersModal({show: true, commId: comm.id, commName: comm.name, isAdminView: false})} className="text-xs text-slate-400 hover:text-white mt-2 font-semibold flex items-center justify-center md:justify-start gap-1.5 transition-colors bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-full border border-white/10"><Users size={12}/> {commMembers.length} Member Terdaftar (Lihat Detail)</button>
+                      <div className="relative z-10 flex flex-col sm:flex-row justify-between items-center gap-4 mb-6 border-b border-slate-700/50 pb-4">
+                         <div className="text-center sm:text-left w-full sm:w-auto">
+                            <h3 className="text-xl font-black text-white flex items-center justify-center sm:justify-start gap-2 truncate max-w-[200px]"><Medal className="text-blue-400 shrink-0" size={20}/> {comm.name}</h3>
+                            <button onClick={() => setMembersModal({show: true, commId: comm.id, commName: comm.name, isAdminView: false})} className="text-[10px] text-slate-400 hover:text-white mt-1 font-semibold flex items-center justify-center sm:justify-start gap-1 transition-colors bg-white/5 hover:bg-white/10 px-2 py-1 rounded border border-white/10 mx-auto sm:mx-0"><Users size={10}/> {commMembers.length} Member</button>
                          </div>
-                         <div className="flex bg-slate-800/80 p-1 rounded-xl border border-slate-600 shadow-inner w-full md:w-auto">
-                            <button onClick={()=>setLeaderboardTabs({...leaderboardTabs, [commId]: 'yesterday'})} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeTab==='yesterday' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>Kemarin</button>
-                            <button onClick={()=>setLeaderboardTabs({...leaderboardTabs, [commId]: 'weekly'})} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeTab==='weekly' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>Pekan Ini</button>
-                            <button onClick={()=>setLeaderboardTabs({...leaderboardTabs, [commId]: 'monthly'})} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeTab==='monthly' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>Bulan Ini</button>
+                         <div className="flex bg-slate-800/80 p-1 rounded-lg border border-slate-600 shadow-inner w-full sm:w-auto">
+                            <button onClick={()=>setLeaderboardTabs({...leaderboardTabs, [commId]: 'yesterday'})} className={`flex-1 sm:flex-none px-3 py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab==='yesterday' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>Kemarin</button>
+                            <button onClick={()=>setLeaderboardTabs({...leaderboardTabs, [commId]: 'weekly'})} className={`flex-1 sm:flex-none px-3 py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab==='weekly' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>Pekan</button>
+                            <button onClick={()=>setLeaderboardTabs({...leaderboardTabs, [commId]: 'monthly'})} className={`flex-1 sm:flex-none px-3 py-1.5 text-[10px] font-bold rounded-md transition-all ${activeTab==='monthly' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>Bulan</button>
                          </div>
                       </div>
 
-                      <div className="relative z-10">
-                         {boardData.length === 0 ? <div className="text-center py-10 text-slate-500 text-sm font-bold uppercase tracking-widest border-2 border-dashed border-slate-700/50 rounded-2xl bg-white/5">Belum ada persaingan bulan ini.</div> : (
-                            <div className="flex flex-col items-center">
-                               {/* === BAGIAN PODIUM (TOP 3) === */}
-                               <div className="flex justify-center items-end gap-2 sm:gap-6 mb-8 pt-10">
-                                  
-                                  {/* JUARA 2 (Silver) */}
+                      <div className="relative z-10 flex-1 flex flex-col">
+                         {boardData.length === 0 ? <div className="text-center py-8 text-slate-500 text-xs font-bold uppercase tracking-widest border border-dashed border-slate-700/50 rounded-xl bg-white/5 m-auto w-full">Belum ada kompetisi</div> : (
+                            <div className="flex flex-col items-center flex-1">
+                               {/* === BAGIAN PODIUM COMPACT === */}
+                               <div className="flex justify-center items-end gap-2 mb-4 pt-4 w-full">
+                                  {/* JUARA 2 */}
                                   {top3[1] && (
-                                  <div className="flex flex-col items-center group">
-                                     <div className="mb-3 text-center transition-transform group-hover:-translate-y-2">
-                                         <span className="block text-xs sm:text-sm font-bold text-slate-300 truncate w-20 sm:w-28 mb-1">{top3[1].name}</span>
-                                         <span className="block text-sm sm:text-base font-black text-slate-100 bg-white/10 px-2 py-0.5 rounded-md border border-white/5">{top3[1].score}%</span>
+                                  <div className="flex flex-col items-center flex-1 max-w-[100px]">
+                                     <div className="mb-2 text-center">
+                                         <span className="block text-[10px] font-bold text-slate-300 truncate w-full px-1">{top3[1].name}</span>
+                                         <span className="block text-xs font-black text-slate-100 mt-0.5">{top3[1].score}%</span>
                                      </div>
-                                     <div className="w-20 sm:w-28 h-28 sm:h-36 bg-gradient-to-t from-slate-600 via-slate-400 to-slate-300 rounded-t-2xl flex justify-center pt-4 text-slate-800 font-black text-3xl shadow-[0_0_20px_rgba(148,163,184,0.3)] border-t-[3px] border-slate-100 relative overflow-hidden">
-                                        <div className="absolute inset-0 bg-white/20 transform -skew-x-12 -ml-10"></div>
-                                        2
-                                     </div>
+                                     <div className="w-full h-16 bg-gradient-to-t from-slate-600 via-slate-400 to-slate-300 rounded-t-lg flex justify-center pt-2 text-slate-800 font-black text-xl border-t-2 border-slate-100">2</div>
                                   </div>
                                   )}
-
-                                  {/* JUARA 1 (Gold) */}
+                                  {/* JUARA 1 */}
                                   {top3[0] && (
-                                  <div className="flex flex-col items-center z-10 group">
-                                     <div className="mb-4 text-center transition-transform group-hover:-translate-y-3 relative">
-                                         <Crown className="text-yellow-400 w-8 h-8 sm:w-10 sm:h-10 mx-auto mb-2 drop-shadow-[0_0_10px_rgba(250,204,21,0.8)] animate-pulse" strokeWidth={2}/>
-                                         <span className="block text-sm sm:text-base font-black text-yellow-400 truncate w-24 sm:w-32 mb-1 drop-shadow-md">{top3[0].name}</span>
-                                         <span className="block text-base sm:text-xl font-black text-white bg-yellow-500/20 px-3 py-1 rounded-lg border border-yellow-500/30">{top3[0].score}%</span>
+                                  <div className="flex flex-col items-center z-10 flex-1 max-w-[120px]">
+                                     <div className="mb-2 text-center relative">
+                                         <Crown className="text-yellow-400 w-6 h-6 mx-auto mb-1 drop-shadow-[0_0_8px_rgba(250,204,21,0.8)] animate-pulse" strokeWidth={2}/>
+                                         <span className="block text-xs font-black text-yellow-400 truncate w-full px-1">{top3[0].name}</span>
+                                         <span className="block text-sm font-black text-white mt-0.5">{top3[0].score}%</span>
                                      </div>
-                                     <div className="w-24 sm:w-32 h-36 sm:h-48 bg-gradient-to-t from-yellow-700 via-yellow-500 to-yellow-300 rounded-t-2xl flex justify-center pt-5 text-yellow-950 font-black text-4xl shadow-[0_0_30px_rgba(250,204,21,0.5)] border-t-[4px] border-yellow-100 relative overflow-hidden">
-                                        <div className="absolute inset-0 bg-white/30 transform -skew-x-12 -ml-12"></div>
-                                        1
-                                     </div>
+                                     <div className="w-full h-24 bg-gradient-to-t from-yellow-700 via-yellow-500 to-yellow-300 rounded-t-lg flex justify-center pt-2.5 text-yellow-950 font-black text-2xl border-t-[3px] border-yellow-100">1</div>
                                   </div>
                                   )}
-
-                                  {/* JUARA 3 (Bronze) */}
+                                  {/* JUARA 3 */}
                                   {top3[2] && (
-                                  <div className="flex flex-col items-center group">
-                                     <div className="mb-2 text-center transition-transform group-hover:-translate-y-2">
-                                         <span className="block text-[10px] sm:text-xs font-bold text-orange-300 truncate w-20 sm:w-28 mb-1">{top3[2].name}</span>
-                                         <span className="block text-xs sm:text-sm font-black text-slate-100 bg-white/10 px-2 py-0.5 rounded-md border border-white/5">{top3[2].score}%</span>
+                                  <div className="flex flex-col items-center flex-1 max-w-[100px]">
+                                     <div className="mb-2 text-center">
+                                         <span className="block text-[10px] font-bold text-orange-300 truncate w-full px-1">{top3[2].name}</span>
+                                         <span className="block text-xs font-black text-slate-100 mt-0.5">{top3[2].score}%</span>
                                      </div>
-                                     <div className="w-20 sm:w-28 h-20 sm:h-28 bg-gradient-to-t from-[#78350f] via-[#b45309] to-[#d97706] rounded-t-2xl flex justify-center pt-3 text-[#451a03] font-black text-2xl shadow-[0_0_20px_rgba(217,119,6,0.3)] border-t-[3px] border-[#fcd34d] relative overflow-hidden">
-                                        <div className="absolute inset-0 bg-white/10 transform -skew-x-12 -ml-8"></div>
-                                        3
-                                     </div>
+                                     <div className="w-full h-12 bg-gradient-to-t from-[#78350f] via-[#b45309] to-[#d97706] rounded-t-lg flex justify-center pt-1.5 text-[#451a03] font-black text-lg border-t-2 border-[#fcd34d]">3</div>
                                   </div>
                                   )}
                                </div>
                                
-                               {/* === BAGIAN LIST (Peringkat 4 & 5) === */}
+                               {/* === LIST COMPACT === */}
                                {rest.length > 0 && (
-                               <div className="w-full max-w-lg space-y-3 mt-4">
+                               <div className="w-full mt-auto space-y-2">
                                   {rest.map((usr, i) => (
-                                     <div key={i} className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors shadow-sm">
-                                        <div className="flex items-center gap-4">
-                                            <span className="text-slate-500 font-black text-lg w-6 text-center">{i+4}</span>
-                                            <div className="w-px h-6 bg-white/10"></div>
-                                            <span className="font-bold text-slate-200 text-sm sm:text-base truncate max-w-[150px] sm:max-w-xs">{usr.name}</span>
+                                     <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-slate-500 font-black text-sm w-4 text-center">{i+4}</span>
+                                            <span className="font-bold text-slate-200 text-xs truncate max-w-[120px] sm:max-w-[180px]">{usr.name}</span>
                                         </div>
-                                        <span className="font-black text-white text-lg bg-blue-900/30 px-3 py-1 rounded-lg border border-blue-500/20">{usr.score}%</span>
+                                        <span className="font-black text-white text-xs bg-blue-900/30 px-2 py-0.5 rounded border border-blue-500/20">{usr.score}%</span>
                                      </div>
                                   ))}
                                </div>
@@ -1728,6 +1797,7 @@ export default function IbadahTracker() {
                       </div>
                    </div>
                 )})}
+                </div>
              </div>
           )}
 
@@ -1765,7 +1835,7 @@ export default function IbadahTracker() {
             <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
               <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2 border-b border-slate-100 pb-4"><span className="w-3 h-3 rounded-full bg-orange-500"></span> {activeJournal && !isViewModalOpen ? 'Edit Doa / Jurnal' : 'Tulis Doa / Jurnal Baru'}</h3>
               <input type="text" placeholder="Tuliskan Judul Jurnal / Doa..." value={journalInput.title} onChange={e => setJournalInput({...journalInput, title: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 mb-4 text-slate-800 outline-none font-bold focus:border-orange-500 focus:bg-white transition-colors" />
-              <textarea placeholder="Tuliskan evaluasi, rasa syukur, atau curahan doa Anda hari ini secara detail..." value={journalInput.content} onChange={e => setJournalInput({...journalInput, content: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 h-64 text-slate-800 outline-none resize-none mb-6 focus:border-orange-500 focus:bg-white transition-colors leading-relaxed" />
+              <textarea placeholder="Tuliskan evaluasi, syukur, atau curahan doa Anda hari ini secara detail..." value={journalInput.content} onChange={e => setJournalInput({...journalInput, content: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 h-64 text-slate-800 outline-none resize-none mb-6 focus:border-orange-500 focus:bg-white transition-colors leading-relaxed" />
               <div className="flex justify-end">
                   <button onClick={saveJournal} className="bg-slate-800 text-white px-8 py-3 rounded-xl hover:bg-slate-900 font-bold shadow-lg flex items-center gap-2 transition-transform hover:-translate-y-1"><Check size={18}/> Simpan Jurnal & Doa</button>
               </div>
@@ -1783,7 +1853,7 @@ export default function IbadahTracker() {
             </div>
             
             {/* --- CHART UTAMA 3 GARIS --- */}
-            <div className="w-full h-[400px] mb-10 bg-slate-50 rounded-2xl p-4 sm:p-6 border border-slate-100 shadow-inner">
+            <div className="w-full h-[400px] mb-4 bg-slate-50 rounded-2xl p-4 sm:p-6 border border-slate-100 shadow-inner">
                <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={mainChartData} margin={{ top: 20, right: 20, left: -20, bottom: 0 }}>
                      <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" vertical={false} />
@@ -1800,16 +1870,18 @@ export default function IbadahTracker() {
                   </ComposedChart>
                </ResponsiveContainer>
             </div>
+            <p className="text-center text-[10px] font-semibold text-slate-400 mb-10 italic">*Grafik Area Gabungan memberikan gambaran fluktuasi kedisiplinan Anda secara keseluruhan di bulan ini.</p>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
                {/* --- BEDAH KUANTITAS --- */}
                <div className="bg-slate-50 rounded-2xl p-6 md:p-8 border border-slate-200">
-                  <h3 className="text-lg font-black text-slate-800 mb-6 text-center flex items-center justify-center gap-2"><BarChart2 className="text-orange-500"/> Bedah Kuantitas Keseluruhan</h3>
+                  <h3 className="text-lg font-black text-slate-800 mb-2 text-center flex items-center justify-center gap-2"><BarChart2 className="text-orange-500"/> Bedah Kuantitas Keseluruhan</h3>
+                  <p className="text-[10px] text-center text-slate-500 mb-6 px-4">Menganalisa perbandingan persentase antara kewajiban yang berhasil dituntaskan dengan yang terabaikan, dibagi per sumber komitmen.</p>
                   
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6">
                       <div className="flex justify-between items-center mb-3 px-1">
-                         <span className="text-sm font-bold text-slate-700">Total Selesai: <span className="text-green-600 font-black text-lg ml-1">{stats.qtyGabungan.done}</span></span>
-                         <span className="text-sm font-bold text-slate-700">Total Terlewat: <span className="text-red-500 font-black text-lg ml-1">{stats.qtyGabungan.missed}</span></span>
+                         <span className="text-sm font-bold text-slate-700">Total Selesai: <span className="text-green-600 font-black text-lg ml-1">{stats.qtyGabungan.done} <span className="text-xs font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded ml-1">({stats.qtyGabungan.done + stats.qtyGabungan.missed === 0 ? 0 : Math.round((stats.qtyGabungan.done / (stats.qtyGabungan.done + stats.qtyGabungan.missed))*100)}%)</span></span></span>
+                         <span className="text-sm font-bold text-slate-700">Total Terlewat: <span className="text-red-500 font-black text-lg ml-1">{stats.qtyGabungan.missed} <span className="text-xs font-bold text-red-700 bg-red-100 px-1.5 py-0.5 rounded ml-1">({stats.qtyGabungan.done + stats.qtyGabungan.missed === 0 ? 0 : Math.round((stats.qtyGabungan.missed / (stats.qtyGabungan.done + stats.qtyGabungan.missed))*100)}%)</span></span></span>
                       </div>
                       <div className="h-4 w-full bg-red-100 rounded-full overflow-hidden flex border border-red-200/50">
                          <div className="h-full bg-gradient-to-r from-green-400 to-green-500" style={{ width: `${stats.qtyGabungan.done + stats.qtyGabungan.missed === 0 ? 0 : (stats.qtyGabungan.done / (stats.qtyGabungan.done + stats.qtyGabungan.missed))*100}%` }}></div>
@@ -1817,33 +1889,33 @@ export default function IbadahTracker() {
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4">
-                     <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm">
+                     <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm flex flex-col h-full">
                         <p className="text-[10px] font-black text-blue-600 uppercase mb-3 flex items-center justify-between border-b border-blue-50 pb-2">👤 Pribadi <span className="text-[9px] font-bold bg-blue-50 px-2 py-0.5 rounded text-blue-800">Terkumpul: {stats.qty.p_done + stats.qty.p_miss}</span></p>
                         <div className="flex justify-between mb-1"><span className="text-xs text-slate-500 font-bold">Selesai:</span><span className="text-sm font-black text-green-600">{stats.qty.p_done}</span></div>
                         <div className="flex justify-between mb-4"><span className="text-xs text-slate-500 font-bold">Terlewat:</span><span className="text-sm font-black text-red-500">{stats.qty.p_miss}</span></div>
-                        <div className="pt-3 border-t border-slate-100 text-[10px] space-y-2">
+                        <div className="mt-auto pt-3 border-t border-slate-100 text-[10px] space-y-2">
                            <div>
                                <p className="text-[8px] text-slate-400 uppercase font-bold mb-0.5">🔥 Paling Sering Selesai</p>
-                               <p className="truncate font-bold text-green-700 bg-green-50 px-2 py-1 rounded">{stats.topPribadi ? `${stats.topPribadi.name} (${stats.topPribadi.done}x)` : '-'}</p>
+                               <p className="truncate font-bold text-green-700 bg-green-50 px-2 py-1 rounded">{stats.topPribadi ? `${stats.topPribadi.name}` : '-'}</p>
                            </div>
                            <div>
                                <p className="text-[8px] text-slate-400 uppercase font-bold mb-0.5">⚠️ Paling Sering Terlewat</p>
-                               <p className="truncate font-bold text-red-700 bg-red-50 px-2 py-1 rounded">{stats.botPribadi ? `${stats.botPribadi.name} (${stats.botPribadi.missed}x)` : '-'}</p>
+                               <p className="truncate font-bold text-red-700 bg-red-50 px-2 py-1 rounded">{stats.botPribadi ? `${stats.botPribadi.name}` : '-'}</p>
                            </div>
                         </div>
                      </div>
-                     <div className="bg-white p-4 rounded-xl border border-purple-100 shadow-sm">
+                     <div className="bg-white p-4 rounded-xl border border-purple-100 shadow-sm flex flex-col h-full">
                         <p className="text-[10px] font-black text-purple-600 uppercase mb-3 flex items-center justify-between border-b border-purple-50 pb-2">👥 Komunitas <span className="text-[9px] font-bold bg-purple-50 px-2 py-0.5 rounded text-purple-800">Terkumpul: {stats.qty.c_done + stats.qty.c_miss}</span></p>
                         <div className="flex justify-between mb-1"><span className="text-xs text-slate-500 font-bold">Selesai:</span><span className="text-sm font-black text-green-600">{stats.qty.c_done}</span></div>
                         <div className="flex justify-between mb-4"><span className="text-xs text-slate-500 font-bold">Terlewat:</span><span className="text-sm font-black text-red-500">{stats.qty.c_miss}</span></div>
-                        <div className="pt-3 border-t border-slate-100 text-[10px] space-y-2">
+                        <div className="mt-auto pt-3 border-t border-slate-100 text-[10px] space-y-2">
                            <div>
                                <p className="text-[8px] text-slate-400 uppercase font-bold mb-0.5">🔥 Paling Sering Selesai</p>
-                               <p className="truncate font-bold text-green-700 bg-green-50 px-2 py-1 rounded">{stats.topComm ? `${stats.topComm.name} (${stats.topComm.done}x)` : '-'}</p>
+                               <p className="truncate font-bold text-green-700 bg-green-50 px-2 py-1 rounded">{stats.topComm ? `${stats.topComm.name}` : '-'}</p>
                            </div>
                            <div>
                                <p className="text-[8px] text-slate-400 uppercase font-bold mb-0.5">⚠️ Paling Sering Terlewat</p>
-                               <p className="truncate font-bold text-red-700 bg-red-50 px-2 py-1 rounded">{stats.botComm ? `${stats.botComm.name} (${stats.botComm.missed}x)` : '-'}</p>
+                               <p className="truncate font-bold text-red-700 bg-red-50 px-2 py-1 rounded">{stats.botComm ? `${stats.botComm.name}` : '-'}</p>
                            </div>
                         </div>
                      </div>
@@ -1852,17 +1924,18 @@ export default function IbadahTracker() {
 
                {/* --- BEDAH DISIPLIN --- */}
                <div className="bg-slate-50 rounded-2xl p-6 md:p-8 border border-slate-200">
-                  <h3 className="text-lg font-black text-slate-800 mb-6 text-center flex items-center justify-center gap-2"><Clock className="text-blue-500"/> Presisi Disiplin Laporan</h3>
-                  
+                  <h3 className="text-lg font-black text-slate-800 mb-2 text-center flex items-center justify-center gap-2"><Clock className="text-blue-500"/> Presisi Disiplin Laporan</h3>
+                  <p className="text-[10px] text-center text-slate-500 mb-6 px-4">Mengurutkan kepatuhan Anda secara otomatis dengan membandingkan jarak waktu pengisian. (Kotak dibiarkan kosong = Rapelan Maksimal).</p>
+
                   <div className="space-y-4">
                      <div className="bg-white p-5 rounded-2xl border border-green-200 shadow-sm relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-2 h-full bg-green-500"></div>
                         <p className="text-[11px] text-green-700 font-black uppercase tracking-widest mb-3 pl-2 flex items-center gap-2"><Target size={14}/> Top 5 Paling Tepat Waktu</p>
                         <div className="space-y-2 pl-2">
                            {stats.topOnTime.length ? stats.topOnTime.map((a,i) => (
-                              <div key={i} className="flex justify-between items-center text-xs">
-                                  <span className="truncate font-bold text-slate-700">{i+1}. {a.name}</span>
-                                  <span className="text-green-600 font-black bg-green-50 px-2 py-0.5 rounded border border-green-100">Selesai {a.done}x</span>
+                              <div key={i} className="flex justify-start items-center text-xs">
+                                  <span className="font-black text-green-500 mr-3">{i+1}.</span>
+                                  <span className="truncate font-bold text-slate-700">{a.name}</span>
                               </div>
                            )) : <p className="text-xs text-center italic text-slate-400 py-2">Belum ada data valid.</p>}
                         </div>
@@ -1873,18 +1946,13 @@ export default function IbadahTracker() {
                         <p className="text-[11px] text-orange-700 font-black uppercase tracking-widest mb-3 pl-2 flex items-center gap-2"><AlertCircle size={14}/> Top 5 Paling Rapelan</p>
                         <div className="space-y-2 pl-2">
                            {stats.topLate.length ? stats.topLate.map((a,i) => (
-                              <div key={i} className="flex justify-between items-center text-xs">
-                                  <span className="truncate font-bold text-slate-700">{i+1}. {a.name}</span>
-                                  <span className="text-orange-600 font-black bg-orange-50 px-2 py-0.5 rounded border border-orange-100">Selesai {a.done}x</span>
+                              <div key={i} className="flex justify-start items-center text-xs">
+                                  <span className="font-black text-orange-500 mr-3">{i+1}.</span>
+                                  <span className="truncate font-bold text-slate-700">{a.name}</span>
                               </div>
                            )) : <p className="text-xs text-center italic text-slate-400 py-2">Belum ada data valid.</p>}
                         </div>
                      </div>
-                  </div>
-                  <div className="mt-5 bg-blue-50/50 border border-blue-100 p-3 rounded-xl">
-                      <p className="text-[9px] text-slate-500 text-center font-medium leading-relaxed">
-                          *Peringkat di atas dikalkulasi secara otomatis oleh mesin algoritma berdasarkan selisih menit terkecil (Paling Tepat Waktu) hingga selisih menit terbesar (Paling Rapelan) antara target vs waktu Anda menekan tombol simpan.
-                      </p>
                   </div>
                </div>
             </div>
@@ -1892,7 +1960,7 @@ export default function IbadahTracker() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                {/* --- WEEK TO WEEK CHART --- */}
                <div className="bg-slate-50 rounded-2xl p-6 md:p-8 border border-slate-200">
-                  <div className="flex justify-between items-center mb-6 border-b border-slate-200 pb-4">
+                  <div className="flex justify-between items-center mb-2 border-b border-slate-200 pb-4">
                      <h3 className="text-slate-800 font-black text-base flex items-center gap-2"><Calendar size={18} className="text-blue-500"/> Week-to-Week</h3>
                      <select value={wtwMonthOffset} onChange={e=>setWtwMonthOffset(Number(e.target.value))} className="text-xs bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-slate-700 outline-none focus:border-blue-500 cursor-pointer shadow-sm">
                         <option value={0}>Bulan Ini</option>
@@ -1900,6 +1968,7 @@ export default function IbadahTracker() {
                         <option value={-2}>2 Bulan Lalu</option>
                      </select>
                   </div>
+                  <p className="text-[10px] text-slate-500 mb-6 italic">*Menganalisa konsistensi kedisiplinan Anda antar pekan. Idealnya stabil atau meningkat.</p>
                   <div className="h-56">
                      <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={wtwData} margin={{top:10,right:10,left:-25,bottom:0}} barSize={30}>
@@ -1915,7 +1984,7 @@ export default function IbadahTracker() {
 
                {/* --- MONTH TO MONTH CHART --- */}
                <div className="bg-slate-50 rounded-2xl p-6 md:p-8 border border-slate-200">
-                  <div className="flex justify-between items-center mb-6 border-b border-slate-200 pb-4">
+                  <div className="flex justify-between items-center mb-2 border-b border-slate-200 pb-4">
                      <h3 className="text-slate-800 font-black text-base flex items-center gap-2"><BarChart2 size={18} className="text-green-500"/> Month-to-Month</h3>
                      <select value={mtmRange} onChange={e=>setMtmRange(Number(e.target.value))} className="text-xs bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-bold text-slate-700 outline-none focus:border-green-500 cursor-pointer shadow-sm">
                         <option value={3}>3 Bln Terakhir</option>
@@ -1923,15 +1992,16 @@ export default function IbadahTracker() {
                         <option value={12}>1 Tahun Penuh</option>
                      </select>
                   </div>
+                  <p className="text-[10px] text-slate-500 mb-6 italic">*Laporan jangka panjang yang menarik histori bulanan untuk mendeteksi siklus performa Anda.</p>
                   <div className="h-56">
                      <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={mtmData} margin={{top:10,right:10,left:-25,bottom:0}}>
                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                            <XAxis dataKey="bln" fontSize={11} fontWeight={600} stroke="#64748b" tickLine={false} axisLine={false} dy={10} />
                            <YAxis fontSize={11} fontWeight={600} stroke="#64748b" domain={[0,100]} tickFormatter={v=>`${v}%`} tickLine={false} axisLine={false} />
-                           <RechartsTooltip contentStyle={{ borderRadius:'12px', border:'none', boxShadow:'0 4px 15px rgba(0,0,0,0.1)' }} formatter={(v,n)=>[`${v}%`, n==='skor'?'Skor Bulanan':'Trend']} labelStyle={{fontWeight:'bold', color:'#334155'}} />
-                           <Line type="monotone" dataKey="skor" name="Skor Bulanan" stroke="#10b981" strokeWidth={4} dot={{r:5, fill:'#10b981', stroke:'#fff', strokeWidth:2}} activeDot={{r:7}} />
-                           <Line type="linear" dataKey="trend" name="Trend" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} />
+                           <RechartsTooltip contentStyle={{ borderRadius:'12px', border:'none', boxShadow:'0 4px 15px rgba(0,0,0,0.1)' }} formatter={(v,n)=>[`${v}%`, n==='skor'?'Skor Bulanan':'Trend Jangka Panjang']} labelStyle={{fontWeight:'bold', color:'#334155'}} />
+                           <Line type="monotone" dataKey="skor" name="skor" stroke="#10b981" strokeWidth={4} dot={{r:5, fill:'#10b981', stroke:'#fff', strokeWidth:2}} activeDot={{r:7}} />
+                           <Line type="linear" dataKey="trend" name="trend" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} />
                         </ComposedChart>
                      </ResponsiveContainer>
                   </div>
@@ -1940,7 +2010,7 @@ export default function IbadahTracker() {
 
             <div className="mt-12 pt-6 border-t-2 border-slate-100 text-center leading-relaxed">
                <p className="text-slate-500 text-xs font-black tracking-widest uppercase">© 2026 TafkirCorp. Seluruh hak cipta milik ALLAAH SWT.</p>
-               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 20.08.26 rev6)</p>
+               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 20.08.26 rev8)</p>
             </div>
           </div>
 
