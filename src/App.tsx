@@ -225,7 +225,7 @@ export default function IbadahTracker() {
     return () => { unsubUser(); unsubComms(); unsubGlobal(); };
   }, [user, isSuperAdmin]);
 
-  // Daftar Semua User (Sekarang ditarik oleh semua role untuk kebutuhan Gamifikasi)
+  // DAFTAR SEMUA USER UNTUK KALKULATOR REAL-TIME GAMIFIKASI (Ditarik oleh SEMUA role)
   useEffect(() => {
     if (!user) return;
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
@@ -236,7 +236,7 @@ export default function IbadahTracker() {
     return () => unsubUsers();
   }, [user]);
 
-  // PENYEMBUHAN RETROAKTIF (Auto-Sync grup yang belum di-join oleh Admin pembuatnya)
+  // PENYEMBUHAN RETROAKTIF (Auto-Sync Admin ke grup buatannya)
   useEffect(() => {
      if (user && allCommunities.length > 0) {
         const myOwnedComms = allCommunities.filter(c => c.ownerId === user.uid).map(c => c.id);
@@ -245,8 +245,6 @@ export default function IbadahTracker() {
         if (missingComms.length > 0) {
            const newJoined = Array.from(new Set([...joinedCommunityIds, ...missingComms]));
            setJoinedCommunityIds(newJoined);
-           
-           // Update database secara background
            setDoc(doc(db, 'users', user.uid), { joinedCommunities: newJoined }, { merge: true })
              .catch(e => console.error("Auto-sync failed:", e));
         }
@@ -279,12 +277,12 @@ export default function IbadahTracker() {
          showToast("Bulan ini tidak sedang ditampilkan."); 
       }
   };
-  
+
   // ==========================================
   // 3. PEMROSESAN DATA (USEMEMO)
   // ==========================================
   
-  // Linked Activities Komunitas (Dengan Logika Deduplikasi Kuat: Pilih Jam Terawal)
+  // Linked Activities Komunitas (Deduplikasi Kuat: Pilih Jam Paling Awal)
   const communityActivities = useMemo(() => {
      let commActsMap: Record<string, any> = {};
      joinedCommunityIds.forEach(commId => {
@@ -293,7 +291,7 @@ export default function IbadahTracker() {
            comm.activities.forEach((actObj: any) => {
               const globalAct = globalActivities.find(a => a.id === actObj.id || a.docId === actObj.id);
               if (globalAct) {
-                 const baseId = actObj.id; // KUNCI DEDUPLIKASI KUAT
+                 const baseId = actObj.id; // KUNCI DEDUPLIKASI
                  
                  if (!commActsMap[baseId]) {
                      commActsMap[baseId] = { 
@@ -307,7 +305,7 @@ export default function IbadahTracker() {
                      if (!commActsMap[baseId].communities.includes(comm.name)) {
                          commActsMap[baseId].communities.push(comm.name);
                      }
-                     // Jika jam berbeda, ambil jam yang paling awal (paling cepat) sebagai acuan gembok waktu
+                     // JAM ACUAN ADALAH JAM TERAWAL UNTUK GEMBOK WAKTU YANG KETAT
                      if (actObj.time < commActsMap[baseId].time) {
                          commActsMap[baseId].time = actObj.time;
                      }
@@ -448,7 +446,6 @@ export default function IbadahTracker() {
           
           if (new Date().getTime() >= targetDateObj.getTime() + 60000) {
               const key = `${item.dateStr}-${actId}`;
-              // Timestamp menggunakan waktu sekarang (saat di-paste) agar terdeteksi disiplinnya
               newRecs[key] = { status: item.status, timestamp: now };
           }
       });
@@ -458,7 +455,7 @@ export default function IbadahTracker() {
   };
 
   // ==========================================
-  // 5. MANAJEMEN KOMITMEN PRIBADI (Linked System)
+  // 5. MANAJEMEN KOMITMEN PRIBADI
   // ==========================================
   const saveActivity = () => {
      if (actModal.tab === 'custom' && !actModal.name.trim()) return showToast("Nama aktivitas kosong!");
@@ -492,7 +489,6 @@ export default function IbadahTracker() {
      }
   };
 
-  // Peringatan Segitiga Merah (< 50%)
   const getDailyEvaluation = (actId: any) => {
     const today = new Date();
     let isCurrentMonth = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
@@ -509,7 +505,6 @@ export default function IbadahTracker() {
     
     daysInMonth.forEach(d => {
        const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
-       // Logika Kosong = Minus (Hanya cek yang waktunya sudah lewat)
        if (today.getTime() >= targetTime.getTime() + 60000) {
           expected++; 
           if (records[`${getLocalDateStr(d)}-${actId}`]?.status === 'done') {
@@ -523,35 +518,69 @@ export default function IbadahTracker() {
 
 
   // ==========================================
-  // 6. MESIN KALKULASI STATISTIK MASTER (ISOLATED)
+  // 6. MESIN KALKULATOR GAMIFIKASI REAL-TIME
+  // ==========================================
+  const getRealTimeLeaderboard = (commId: string, timeframe: 'monthly'|'weekly'|'yesterday') => {
+      const comm = allCommunities.find(c => c.id === commId);
+      if (!comm || !comm.activities) return [];
+
+      // Dapatkan referensi jam aktivitas untuk grup ini
+      const acts = comm.activities.map((actObj: any) => {
+          const gAct = globalActivities.find(g => g.id === actObj.id || g.docId === actObj.id);
+          return gAct ? { id: actObj.id, time: actObj.time } : null;
+      }).filter(Boolean);
+
+      const today = new Date();
+      const currentWeekIdx = Math.floor((today.getDate() - 1) / 7);
+      const yesterdayDate = today.getDate() - 1;
+
+      // Saring tanggal yang relevan berdasarkan Timeframe
+      const validDays = daysInMonth.filter(d => {
+          if (timeframe === 'monthly') return true;
+          if (timeframe === 'weekly') return Math.floor((d.getDate() - 1) / 7) === currentWeekIdx;
+          if (timeframe === 'yesterday') return d.getDate() === yesterdayDate;
+          return true;
+      });
+
+      // Hitung skor mentah untuk SETIAP USER yang tergabung
+      const board = allUsers.filter(u => u.joinedCommunities?.includes(commId)).map(u => {
+          let expected = 0;
+          let done = 0;
+          
+          validDays.forEach(d => {
+              const dateStr = getLocalDateStr(d);
+              acts.forEach(a => {
+                  const [h, m] = a.time.split(':').map(Number);
+                  const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
+                  if (today.getTime() >= targetTime.getTime() + 60000) {
+                      expected++;
+                      if (u.records && u.records[`${dateStr}-${a.id}`]?.status === 'done') {
+                          done++;
+                      }
+                  }
+              });
+          });
+          
+          const score = expected === 0 ? 0 : Math.round((done / expected) * 100);
+          return { name: u.displayName || 'Anonim', score };
+      });
+
+      // Hilangkan filter score > 0 agar semua member (termasuk yang 0%) masuk kelasemen
+      return board.sort((a,b) => b.score - a.score);
+  };
+
+
+  // ==========================================
+  // 7. MESIN KALKULASI STATISTIK MASTER (ISOLATED)
   // ==========================================
   const calcStats = () => {
     const today = new Date();
     
-    // Helper Skor Generik
     const calculateScore = (actArray: any[]) => {
        let expected = 0; 
        let done = 0;
        
        daysInMonth.forEach(d => {
-          const dateStr = getLocalDateStr(d);
-          actArray.forEach(a => {
-             const [h, m] = a.time.split(':').map(Number);
-             const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
-             
-             if (today.getTime() >= targetTime.getTime() + 60000) {
-                expected++; 
-                if (records[`${dateStr}-${a.id}`]?.status === 'done') done++;
-             }
-          });
-       });
-       return expected === 0 ? 0 : Math.round((done / expected) * 100);
-    };
-
-    const calculateTimeframeScore = (actArray: any[], filterFn: (d: Date) => boolean) => {
-       let expected = 0; 
-       let done = 0;
-       daysInMonth.filter(filterFn).forEach(d => {
           const dateStr = getLocalDateStr(d);
           actArray.forEach(a => {
              const [h, m] = a.time.split(':').map(Number);
@@ -570,11 +599,7 @@ export default function IbadahTracker() {
     
     let totalCommScore = 0; 
     let activeComms = 0; 
-    const communityScoresDetail: Record<string, { monthly: number, weekly: number, yesterday: number }> = {};
     
-    const todayDate = today.getDate();
-    const currentWeekIdx = Math.floor((todayDate - 1) / 7);
-
     joinedCommunityIds.forEach(commId => {
        const comm = allCommunities.find(c => c.id === commId);
        if (comm && comm.activities?.length > 0) {
@@ -582,14 +607,8 @@ export default function IbadahTracker() {
              const gAct = globalActivities.find(g => g.id === actObj.id || g.docId === actObj.id);
              return gAct ? { id: actObj.id, name: gAct.name, time: actObj.time } : null;
           }).filter(Boolean);
-          
-          const mScore = calculateTimeframeScore(acts, () => true); 
-          const wScore = calculateTimeframeScore(acts, (d) => Math.floor((d.getDate() - 1) / 7) === currentWeekIdx); 
-          const yScore = calculateTimeframeScore(acts, (d) => d.getDate() === todayDate - 1); 
-          
-          communityScoresDetail[commId] = { monthly: mScore, weekly: wScore, yesterday: yScore }; 
-          
-          totalCommScore += mScore; 
+          const score = calculateScore(acts);
+          totalCommScore += score; 
           activeComms++;
        }
     });
@@ -669,7 +688,7 @@ export default function IbadahTracker() {
     const topComm = [...c_metrics].sort((a,b) => b.done - a.done)[0];
     const botComm = [...c_metrics].sort((a,b) => a.done - b.done)[0];
 
-    // C. Analisa Tepat Waktu (Berdasarkan Rata-rata Menit)
+    // C. Analisa Tepat Waktu (Berdasarkan Rata-rata Menit, HANYA NAMA)
     const disciplineMap: Record<string, {name: string, diffMinsTotal: number, totalExpected: number}> = {};
     metricArray.forEach(a => {
         if(!disciplineMap[a.name]) disciplineMap[a.name] = { name: a.name, diffMinsTotal: a.diffMinsTotal, totalExpected: a.totalExpected };
@@ -685,11 +704,11 @@ export default function IbadahTracker() {
     
     // Sort asc untuk Tepat Waktu (selisih menit terkecil)
     const topOnTime = [...disciplineList].sort((a,b) => a.avgDiff - b.avgDiff).slice(0, 5);
-    // Sort desc untuk Telat (selisih menit terbesar, dipenuhi oleh yang kosong)
+    // Sort desc untuk Telat (selisih menit terbesar, dipenuhi oleh kotak kosong)
     const topLate = [...disciplineList].sort((a,b) => b.avgDiff - a.avgDiff).slice(0, 5);
 
     return { 
-        scorePribadi, scoreKomunitas, scoreGabungan, communityScoresDetail, 
+        scorePribadi, scoreKomunitas, scoreGabungan, 
         qty, qtyGabungan, 
         topPribadi, botPribadi, topComm, botComm, 
         topOnTime, topLate 
@@ -720,7 +739,7 @@ export default function IbadahTracker() {
   };
 
   // ==========================================
-  // 7. FUNGSI SIMPAN, RESET & BACKUP
+  // 8. FUNGSI SIMPAN, RESET & BACKUP
   // ==========================================
   const saveToServer = async (isAutoSave = false) => {
     if (!user) return; 
@@ -738,17 +757,9 @@ export default function IbadahTracker() {
        [`score_${mKey}_gabungan`]: stats.scoreGabungan
     };
     
-    // Simpan semua Multi-Timeframe Score
-    Object.entries(stats.communityScoresDetail).forEach(([cId, scores]) => {
-        payload[`score_${mKey}_comm_${cId}_monthly`] = scores.monthly;
-        payload[`score_${mKey}_comm_${cId}_weekly`] = scores.weekly;
-        payload[`score_${mKey}_comm_${cId}_yesterday`] = scores.yesterday;
-    });
-    
     try {
       await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
       
-      // Kosongkan history Undo/Redo setelah disave secara permanen
       if (!isAutoSave) {
           setPastRecords([]);
           setFutureRecords([]);
@@ -773,7 +784,6 @@ export default function IbadahTracker() {
       let newRecs = { ...records };
       const now = new Date();
       const thisMonthPrefix = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-      
       const lastMonthDate = new Date(now.getFullYear(), now.getMonth()-1, 1);
       const lastMonthPrefix = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth()+1).padStart(2,'0')}`;
 
@@ -802,7 +812,6 @@ export default function IbadahTracker() {
           records,
           journals
       };
-      
       const blob = new Blob([JSON.stringify(backupData)], {type: "application/json"});
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -822,10 +831,8 @@ export default function IbadahTracker() {
           try {
               const data = JSON.parse(event.target?.result as string);
               if (!data.records || !data.personalActivities) throw new Error("Format tidak valid");
-              
               if (!window.confirm("Yakin ingin melakukan Import Restore? Data Anda saat ini akan digabungkan (merge) dengan data file.")) return;
 
-              // Gabungkan Data
               setPersonalActivities(prev => {
                   const merged = [...prev];
                   data.personalActivities.forEach((a:any) => { if(!merged.find(x => x.id === a.id)) merged.push(a); });
@@ -838,9 +845,7 @@ export default function IbadahTracker() {
                   return merged;
               });
               
-              // Push to history for undoability
               pushToHistory({ ...records, ...data.records });
-              
               setShowSettingsModal(false);
               showToast("Data berhasil di-restore! Klik Simpan Perubahan.");
           } catch(err) {
@@ -852,7 +857,7 @@ export default function IbadahTracker() {
   };
 
   // ==========================================
-  // 8. FITUR SUPER ADMIN & ADMIN
+  // 9. FITUR SUPER ADMIN & ADMIN
   // ==========================================
   const executeRoleChange = async () => {
      try {
@@ -894,7 +899,8 @@ export default function IbadahTracker() {
                activities: selectedActs, joinCode: joinCode, createdAt: new Date().getTime() 
            });
            
-           // AUTO JOIN ADMIN
+           // AUTO JOIN ADMIN RETROAKTIF DITANGANI OLEH USEEFFECT SEBELUMNYA.
+           // Namun untuk instan UI response:
            const newJoined = [...joinedCommunityIds, newDocRef.id];
            setJoinedCommunityIds(newJoined);
            await setDoc(doc(db, 'users', user.uid), { joinedCommunities: newJoined }, { merge: true });
@@ -946,7 +952,6 @@ export default function IbadahTracker() {
      showToast(`Bergabung ke ${comm.name}! Klik Simpan Perubahan.`);
   };
 
-  // Filter Data Users untuk Admin Dashboard
   const filteredAdminUsers = useMemo(() => {
      let result = allUsers;
      if (userRole === 'admin') {
@@ -968,7 +973,7 @@ export default function IbadahTracker() {
 
 
   // ==========================================
-  // 9. FITUR JURNAL & EXPORT
+  // 10. FITUR JURNAL & EXPORT
   // ==========================================
   const handleLogout = () => {
     if (hasUnsavedChanges && !window.confirm("PERINGATAN: Ada perubahan yang belum disimpan. Yakin ingin keluar?")) return; 
@@ -1021,7 +1026,7 @@ export default function IbadahTracker() {
   };
 
   // ==========================================
-  // 10. GENERATOR DATA GRAFIK (CHARTS)
+  // 11. GENERATOR DATA GRAFIK (CHARTS)
   // ==========================================
   const linearRegression = (data: any[], key: string) => {
      const n = data.length; 
@@ -1196,7 +1201,7 @@ export default function IbadahTracker() {
                     <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center"><img src="/logo.png" alt="Logo" className="w-8 h-8" /></div>
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Tracker IbadahKU</h2>
-                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 21.08.26 rev1 (Enterprise)</p>
+                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 21.08.26 rev2 (Enterprise)</p>
                     </div>
                  </div>
                  
@@ -1645,10 +1650,11 @@ export default function IbadahTracker() {
             </div>
             
             {/* CONTAINER TABEL COMPACT */}
+            {/* Menghapus pb-40 agar tidak ada ruang kosong di bawah, menggunakan fixed padding logic */}
             <div className="overflow-x-auto overflow-y-visible max-h-[70vh] custom-scrollbar" ref={tableContainerRef}>
               <table className="w-full text-xs">
                 
-                {/* --- HEADER STICKY TINGKAT 2 --- */}
+                {/* --- HEADER STICKY --- */}
                 <thead className="sticky top-0 z-40 bg-slate-100 shadow-md">
                   <tr>
                     <th className="text-left text-slate-800 font-black p-3 sticky left-0 top-0 z-50 bg-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] min-w-[200px] sm:min-w-[280px]">
@@ -1677,12 +1683,12 @@ export default function IbadahTracker() {
                              <div className="w-1.5 h-1.5 rounded-full bg-blue-600 shadow-[0_0_5px_rgba(37,99,235,0.8)]"></div>
                              <span className="font-black text-blue-900 text-[10px] uppercase tracking-widest">Komitmen Pribadi</span>
                              
-                             {/* TOOLTIP DIPERBAIKI (Z-Index tinggi, origin mengambang ke atas) */}
+                             {/* TOOLTIP DIPERBAIKI (Pop ke samping kanan) */}
                              <div className="relative group/info cursor-help inline-block ml-1">
                                  <Info size={12} className="text-blue-500" />
-                                 <div className="absolute hidden group-hover/info:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
+                                 <div className="absolute hidden group-hover/info:block top-1/2 -translate-y-1/2 left-full ml-3 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
                                      Anda bebas menambah, memilih, mengubah jam, dan menghapus aktivitas di blok ini sesuka hati Anda.
-                                     <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 rotate-45"></div>
+                                     <div className="absolute top-1/2 -translate-y-1/2 right-full -ml-1.5 w-3 h-3 bg-slate-900 rotate-45"></div>
                                  </div>
                              </div>
                          </div>
@@ -1693,7 +1699,8 @@ export default function IbadahTracker() {
                   )}
                   {formattedPersonalActivities.map((act, rowIndex) => {
                      const isSafe = getDailyEvaluation(act.id);
-                     const isTopRow = rowIndex < 3; 
+                     const isTopRow = rowIndex < 3; // Deteksi jika baris di atas
+                     
                      return (
                     <tr key={act.id} className="bg-white hover:bg-orange-50/50 border-b border-slate-100 transition-colors">
                       <td className="p-2 font-medium sticky left-0 z-30 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] bg-white">
@@ -1730,7 +1737,7 @@ export default function IbadahTracker() {
                             : rec?.status === 'missed' ? <div className="w-5 h-5 mx-auto bg-red-50 rounded flex items-center justify-center border border-red-200"><X className="text-red-500" size={12} strokeWidth={3}/></div>
                             : <div className="w-5 h-5 mx-auto rounded bg-slate-50 border border-slate-200 hover:border-orange-400 hover:bg-orange-50 transition-colors" />}
                             
-                            {/* TOOLTIP REPORT INFO: Cerdas menghindari overflow terpotong */}
+                            {/* TOOLTIP REPORT INFO MENGAMBANG KE ATAS ATAU BAWAH TERGANTUNG BARIS */}
                             {rec && (
                                 <div className={`absolute hidden group-hover:block left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 text-white text-[10px] p-2.5 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-44 z-[9999] pointer-events-none ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
                                     <p className="font-black text-orange-400 border-b border-slate-700 pb-1 mb-1.5 truncate">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
@@ -1771,7 +1778,7 @@ export default function IbadahTracker() {
                              
                              <div className="relative group/info cursor-help inline-block ml-1">
                                  <Info size={12} className="text-purple-500" />
-                                 <div className="absolute hidden group-hover/info:block bottom-full left-1/2 -translate-x-1/2 mb-2 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
+                                 <div className="absolute hidden group-hover/info:block top-1/2 -translate-y-1/2 left-full ml-3 w-56 bg-slate-900 text-white text-[10px] p-3 rounded-xl shadow-2xl z-[9999] leading-relaxed">
                                      Blok ini aktif saat Anda bergabung dengan grup. Daftar aktivitas beserta jam targetnya diatur secara terpusat oleh Admin grup Anda.
                                      <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 rotate-45"></div>
                                  </div>
@@ -1818,7 +1825,7 @@ export default function IbadahTracker() {
                             : rec?.status === 'missed' ? <div className="w-5 h-5 mx-auto bg-red-50 rounded flex items-center justify-center border border-red-200"><X className="text-red-500" size={12} strokeWidth={3}/></div>
                             : <div className="w-5 h-5 mx-auto rounded bg-white border hover:border-orange-300" />}
                             
-                            {/* TOOLTIP REPORT INFO */}
+                            {/* TOOLTIP REPORT INFO SELALU KE ATAS KARENA KOMUNITAS DI BAWAH */}
                             {rec && (
                                 <div className="absolute hidden group-hover:block bottom-full left-1/2 -translate-x-1/2 mb-2 bg-slate-900 border border-slate-700 text-white text-[10px] p-2.5 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-44 z-[9999] pointer-events-none">
                                     <p className="font-black text-orange-400 border-b border-slate-700 pb-1 mb-1.5 truncate">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
@@ -1862,7 +1869,7 @@ export default function IbadahTracker() {
             </div>
           </div>
 
-          {/* ================= GAMIFIKASI (PODIUM GRID) ================= */}
+          {/* ================= GAMIFIKASI (PODIUM GRID & REAL-TIME CALCULATOR) ================= */}
           {joinedCommunityIds.length > 0 && (
              <div className="space-y-6 pt-6">
                 <div className="flex items-center gap-3">
@@ -1878,9 +1885,10 @@ export default function IbadahTracker() {
                    
                    const commMembers = getCommunityMembersFull(commId);
                    const activeTab = leaderboardTabs[commId] || 'monthly';
-                   let sKey = `score_${String(currentDate.getMonth() + 1).padStart(2, '0')}-${currentDate.getFullYear()}_comm_${commId}_${activeTab}`;
                    
-                   const boardData = allUsers.map(u => ({ name: u.displayName || 'Anonim', score: u[sKey] || 0 })).filter(u => u.score > 0).sort((a,b) => b.score - a.score);
+                   // MENGGUNAKAN MESIN REAL-TIME ON-THE-FLY UNTUK GAMIFIKASI
+                   const boardData = getRealTimeLeaderboard(commId, activeTab);
+                   
                    const top3 = boardData.slice(0, 3);
                    const rest = boardData.slice(3);
 
@@ -1901,7 +1909,7 @@ export default function IbadahTracker() {
                       </div>
 
                       <div className="relative z-10 flex-1 flex flex-col">
-                         {boardData.length === 0 ? <div className="text-center py-8 text-slate-500 text-xs font-bold uppercase tracking-widest border border-dashed border-slate-700/50 rounded-xl bg-white/5 m-auto w-full">Belum ada kompetisi</div> : (
+                         {boardData.length === 0 ? <div className="text-center py-8 text-slate-500 text-xs font-bold uppercase tracking-widest border border-dashed border-slate-700/50 rounded-xl bg-white/5 m-auto w-full">Belum ada peserta</div> : (
                             <div className="flex flex-col items-center flex-1">
                                {/* === BAGIAN PODIUM COMPACT === */}
                                <div className="flex justify-center items-end gap-2 mb-4 pt-4 w-full">
@@ -1940,7 +1948,7 @@ export default function IbadahTracker() {
                                
                                {/* === TOMBOL MENU PERINGKAT LENGKAP === */}
                                {rest.length > 0 && (
-                                   <button onClick={() => setFullLeaderboardModal({show:true, commName: comm.name, boardData: boardData})} className="text-xs w-full py-2.5 mt-4 bg-blue-900/30 hover:bg-blue-800/50 text-blue-400 font-bold rounded-lg border border-blue-500/30 transition-colors flex items-center justify-center gap-2">
+                                   <button onClick={() => setFullLeaderboardModal({show:true, commName: comm.name, boardData: boardData})} className="text-xs w-full py-2.5 mt-auto bg-blue-900/30 hover:bg-blue-800/50 text-blue-400 font-bold rounded-lg border border-blue-500/30 transition-colors flex items-center justify-center gap-2">
                                        <ListOrdered size={14}/> Lihat Peringkat Lengkap (Ke-{boardData.length})
                                    </button>
                                )}
@@ -2162,7 +2170,7 @@ export default function IbadahTracker() {
 
             <div className="mt-12 pt-6 border-t-2 border-slate-100 text-center leading-relaxed">
                <p className="text-slate-500 text-xs font-black tracking-widest uppercase">© 2026 TafkirCorp. Seluruh hak cipta milik ALLAAH SWT.</p>
-               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 21.08.26 rev1)</p>
+               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 21.08.26 rev2)</p>
             </div>
           </div>
 
