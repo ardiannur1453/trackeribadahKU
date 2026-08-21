@@ -236,6 +236,23 @@ export default function IbadahTracker() {
     return () => unsubUsers();
   }, [user]);
 
+  // PENYEMBUHAN RETROAKTIF (Auto-Sync grup yang belum di-join oleh Admin pembuatnya)
+  useEffect(() => {
+     if (user && allCommunities.length > 0) {
+        const myOwnedComms = allCommunities.filter(c => c.ownerId === user.uid).map(c => c.id);
+        const missingComms = myOwnedComms.filter(id => !joinedCommunityIds.includes(id));
+        
+        if (missingComms.length > 0) {
+           const newJoined = Array.from(new Set([...joinedCommunityIds, ...missingComms]));
+           setJoinedCommunityIds(newJoined);
+           
+           // Update database secara background
+           setDoc(doc(db, 'users', user.uid), { joinedCommunities: newJoined }, { merge: true })
+             .catch(e => console.error("Auto-sync failed:", e));
+        }
+     }
+  }, [user, allCommunities, joinedCommunityIds]);
+
   // Auto Save
   useEffect(() => {
     if (hasUnsavedChanges && user) {
@@ -244,6 +261,7 @@ export default function IbadahTracker() {
     }
   }, [hasUnsavedChanges, records, journals, personalActivities, joinedCommunityIds]);
 
+  // --- FUNGSI UTILITIES TAMPILAN ---
   const showToast = (msg: string) => { 
       setToast(msg); 
       setTimeout(() => setToast(''), 4000); 
@@ -261,7 +279,7 @@ export default function IbadahTracker() {
          showToast("Bulan ini tidak sedang ditampilkan."); 
       }
   };
-
+  
   // ==========================================
   // 3. PEMROSESAN DATA (USEMEMO)
   // ==========================================
@@ -430,6 +448,7 @@ export default function IbadahTracker() {
           
           if (new Date().getTime() >= targetDateObj.getTime() + 60000) {
               const key = `${item.dateStr}-${actId}`;
+              // Timestamp menggunakan waktu sekarang (saat di-paste) agar terdeteksi disiplinnya
               newRecs[key] = { status: item.status, timestamp: now };
           }
       });
@@ -439,7 +458,7 @@ export default function IbadahTracker() {
   };
 
   // ==========================================
-  // 5. MANAJEMEN KOMITMEN PRIBADI
+  // 5. MANAJEMEN KOMITMEN PRIBADI (Linked System)
   // ==========================================
   const saveActivity = () => {
      if (actModal.tab === 'custom' && !actModal.name.trim()) return showToast("Nama aktivitas kosong!");
@@ -473,6 +492,7 @@ export default function IbadahTracker() {
      }
   };
 
+  // Peringatan Segitiga Merah (< 50%)
   const getDailyEvaluation = (actId: any) => {
     const today = new Date();
     let isCurrentMonth = currentDate.getMonth() === today.getMonth() && currentDate.getFullYear() === today.getFullYear();
@@ -489,6 +509,7 @@ export default function IbadahTracker() {
     
     daysInMonth.forEach(d => {
        const targetTime = new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m);
+       // Logika Kosong = Minus (Hanya cek yang waktunya sudah lewat)
        if (today.getTime() >= targetTime.getTime() + 60000) {
           expected++; 
           if (records[`${getLocalDateStr(d)}-${actId}`]?.status === 'done') {
@@ -507,6 +528,7 @@ export default function IbadahTracker() {
   const calcStats = () => {
     const today = new Date();
     
+    // Helper Skor Generik
     const calculateScore = (actArray: any[]) => {
        let expected = 0; 
        let done = 0;
@@ -611,11 +633,13 @@ export default function IbadahTracker() {
                 actMetrics[metricKey].done++;
                 if (isPribadi) qty.p_done++; else qty.c_done++;
                 
+                // Hitung selisih waktu pelaporan
                 let diff = (rec.timestamp - targetTime) / 60000;
                 if (diff < 0) diff = Math.abs(diff); 
                 actMetrics[metricKey].diffMinsTotal += diff;
                 
              } else if (rec && rec.status === 'missed') {
+                // Silang manual
                 actMetrics[metricKey].missed++;
                 if (isPribadi) qty.p_miss++; else qty.c_miss++;
                 
@@ -624,8 +648,10 @@ export default function IbadahTracker() {
                 actMetrics[metricKey].diffMinsTotal += diff;
 
              } else {
+                // KOSONG = PENALTI RAPELAN MAKSIMAL (+1440 menit / 24 jam)
                 actMetrics[metricKey].missed++;
                 if (isPribadi) qty.p_miss++; else qty.c_miss++;
+                
                 actMetrics[metricKey].diffMinsTotal += 1440;
              }
           }
@@ -643,6 +669,7 @@ export default function IbadahTracker() {
     const topComm = [...c_metrics].sort((a,b) => b.done - a.done)[0];
     const botComm = [...c_metrics].sort((a,b) => a.done - b.done)[0];
 
+    // C. Analisa Tepat Waktu (Berdasarkan Rata-rata Menit)
     const disciplineMap: Record<string, {name: string, diffMinsTotal: number, totalExpected: number}> = {};
     metricArray.forEach(a => {
         if(!disciplineMap[a.name]) disciplineMap[a.name] = { name: a.name, diffMinsTotal: a.diffMinsTotal, totalExpected: a.totalExpected };
@@ -656,7 +683,9 @@ export default function IbadahTracker() {
         return { name: a.name, avgDiff: a.diffMinsTotal / a.totalExpected };
     });
     
+    // Sort asc untuk Tepat Waktu (selisih menit terkecil)
     const topOnTime = [...disciplineList].sort((a,b) => a.avgDiff - b.avgDiff).slice(0, 5);
+    // Sort desc untuk Telat (selisih menit terbesar, dipenuhi oleh yang kosong)
     const topLate = [...disciplineList].sort((a,b) => b.avgDiff - a.avgDiff).slice(0, 5);
 
     return { 
@@ -669,6 +698,7 @@ export default function IbadahTracker() {
 
   const stats = calcStats();
 
+  // Helper Footer Tabel Ketercapaian
   const getSubDailyPct = (day: Date, acts: any[]) => {
      const today = new Date(); 
      const dateStr = getLocalDateStr(day);
@@ -708,6 +738,7 @@ export default function IbadahTracker() {
        [`score_${mKey}_gabungan`]: stats.scoreGabungan
     };
     
+    // Simpan semua Multi-Timeframe Score
     Object.entries(stats.communityScoresDetail).forEach(([cId, scores]) => {
         payload[`score_${mKey}_comm_${cId}_monthly`] = scores.monthly;
         payload[`score_${mKey}_comm_${cId}_weekly`] = scores.weekly;
@@ -717,6 +748,7 @@ export default function IbadahTracker() {
     try {
       await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
       
+      // Kosongkan history Undo/Redo setelah disave secara permanen
       if (!isAutoSave) {
           setPastRecords([]);
           setFutureRecords([]);
@@ -741,6 +773,7 @@ export default function IbadahTracker() {
       let newRecs = { ...records };
       const now = new Date();
       const thisMonthPrefix = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+      
       const lastMonthDate = new Date(now.getFullYear(), now.getMonth()-1, 1);
       const lastMonthPrefix = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth()+1).padStart(2,'0')}`;
 
@@ -769,6 +802,7 @@ export default function IbadahTracker() {
           records,
           journals
       };
+      
       const blob = new Blob([JSON.stringify(backupData)], {type: "application/json"});
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -788,8 +822,10 @@ export default function IbadahTracker() {
           try {
               const data = JSON.parse(event.target?.result as string);
               if (!data.records || !data.personalActivities) throw new Error("Format tidak valid");
+              
               if (!window.confirm("Yakin ingin melakukan Import Restore? Data Anda saat ini akan digabungkan (merge) dengan data file.")) return;
 
+              // Gabungkan Data
               setPersonalActivities(prev => {
                   const merged = [...prev];
                   data.personalActivities.forEach((a:any) => { if(!merged.find(x => x.id === a.id)) merged.push(a); });
@@ -802,7 +838,9 @@ export default function IbadahTracker() {
                   return merged;
               });
               
+              // Push to history for undoability
               pushToHistory({ ...records, ...data.records });
+              
               setShowSettingsModal(false);
               showToast("Data berhasil di-restore! Klik Simpan Perubahan.");
           } catch(err) {
@@ -908,6 +946,7 @@ export default function IbadahTracker() {
      showToast(`Bergabung ke ${comm.name}! Klik Simpan Perubahan.`);
   };
 
+  // Filter Data Users untuk Admin Dashboard
   const filteredAdminUsers = useMemo(() => {
      let result = allUsers;
      if (userRole === 'admin') {
@@ -1157,7 +1196,7 @@ export default function IbadahTracker() {
                     <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center"><img src="/logo.png" alt="Logo" className="w-8 h-8" /></div>
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Tracker IbadahKU</h2>
-                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 21.08.26</p>
+                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 21.08.26 rev1 (Enterprise)</p>
                     </div>
                  </div>
                  
@@ -1831,6 +1870,7 @@ export default function IbadahTracker() {
                    <h2 className="text-2xl font-black text-slate-800">Leaderboard Komunitas</h2>
                 </div>
                 
+                {/* GRID LAYOUT AGAR TIDAK MEMAKAN RUANG VERTIKAL */}
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
                 {joinedCommunityIds.map(commId => {
                    const comm = allCommunities.find(c => c.id === commId); 
@@ -2122,7 +2162,7 @@ export default function IbadahTracker() {
 
             <div className="mt-12 pt-6 border-t-2 border-slate-100 text-center leading-relaxed">
                <p className="text-slate-500 text-xs font-black tracking-widest uppercase">© 2026 TafkirCorp. Seluruh hak cipta milik ALLAAH SWT.</p>
-               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 20.08.26 rev9)</p>
+               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 21.08.26 rev1)</p>
             </div>
           </div>
 
