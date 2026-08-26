@@ -2329,7 +2329,7 @@ export default function IbadahTracker() {
                               {act.frequency !== 'daily' && <span className="text-[8px] font-black text-slate-500 bg-slate-200 px-1.5 py-0.5 rounded uppercase tracking-widest">{getFreqLabel(act.frequency)}</span>}
                               
                               {/* SIKLUS 2: Opt #1 - SMART TRUNCATION MICRO-BADGE (Tabel) + DELAY TOOLTIP */}
-                              <div className="relative group/commbadge delay-1200-trigger cursor-help flex items-center">
+                              <div className="relative group/commbadge delay-500-trigger cursor-help flex items-center">
                                  <span className="text-[8px] text-slate-500 uppercase font-semibold flex items-center gap-1 bg-white px-1.5 py-0.5 rounded border border-slate-200 shadow-sm ml-1">
                                     <Users size={10} className="shrink-0 text-slate-400"/> 
                                     {act.communities.length > 1 ? `${act.communities[0]} +${act.communities.length - 1} Grup` : act.communities[0]}
