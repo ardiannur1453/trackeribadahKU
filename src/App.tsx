@@ -91,6 +91,9 @@ export default function IbadahTracker() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   
+  // SIKLUS 4: KUNCI GEMBOK KESIAPAN DATA (Anti Race-Condition)
+  const [isUserProfileLoaded, setIsUserProfileLoaded] = useState(false);
+  
   // --- STATES DATA UTAMA ---
   const [personalActivities, setPersonalActivities] = useState<any[]>([]);
   const [joinedCommunityIds, setJoinedCommunityIds] = useState<string[]>([]);
@@ -184,6 +187,8 @@ export default function IbadahTracker() {
          } catch (e) {
             console.error("Gagal sinkronisasi login:", e);
          }
+      } else {
+         setIsUserProfileLoaded(false); // Reset jika logout
       }
     });
     return () => unsubscribe();
@@ -208,6 +213,9 @@ export default function IbadahTracker() {
           let effectiveRole = d.role || 'demo';
           if (user.email === 'coachardi1453@gmail.com') effectiveRole = 'superadmin';
           setUserRole(effectiveRole);
+          
+          // SIKLUS 4: Nyalakan gembok kesiapan data HANYA SETELAH profil sukses dirender
+          setIsUserProfileLoaded(true);
        }
        setIsSyncing(false);
     });
@@ -245,9 +253,10 @@ export default function IbadahTracker() {
     return () => unsubUsers();
   }, [user]);
 
-  // PENYEMBUHAN RETROAKTIF (Auto-Sync Admin ke grup buatannya)
+  // SIKLUS 4: PENYEMBUHAN RETROAKTIF DILINDUNGI GEMBOK KESIAPAN DATA (Anti-Race Condition)
   useEffect(() => {
-     if (user && allCommunities.length > 0) {
+     // Mesin hanya boleh menyala jika `isUserProfileLoaded` bernilai TRUE
+     if (user && isUserProfileLoaded && allCommunities.length > 0) {
         const myOwnedComms = allCommunities.filter(c => c.ownerId === user.uid).map(c => c.id);
         const missingComms = myOwnedComms.filter(id => !joinedCommunityIds.includes(id));
         
@@ -258,10 +267,7 @@ export default function IbadahTracker() {
              .catch(e => console.error("Auto-sync failed:", e));
         }
      }
-  }, [user, allCommunities, joinedCommunityIds]);
-
-  // SIKLUS 3: Opt #2 - Blok `useEffect` Phantom Cleanup (Auto-Kick) telah dihapus secara mutlak dari sini.
-  // Data keanggotaan grup kini 100% imun dari fluktuasi cache / delay loading server.
+  }, [user, isUserProfileLoaded, allCommunities, joinedCommunityIds]);
 
   // Auto Save
   useEffect(() => {
@@ -391,9 +397,8 @@ export default function IbadahTracker() {
      return Object.values(actMap).sort((a, b) => a.time.localeCompare(b.time));
   }, [allCombinedActivities]);
 
-  // Smart Truncation Array
+  // Smart Truncation Array (Anti-Crash Graceful Degradation)
   const joinedCommunityNamesArray = useMemo(() => {
-     // Gunakan optional chaining untuk Graceful Degradation (Anti-Crash) jika allCommunities blm load
      return joinedCommunityIds.map(id => allCommunities.find(c => c.id === id)?.name).filter(Boolean);
   }, [joinedCommunityIds, allCommunities]);
 
@@ -1462,7 +1467,7 @@ export default function IbadahTracker() {
                     <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center"><img src="/logo.png" alt="Logo" className="w-8 h-8" /></div>
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Tracker IbadahKU</h2>
-                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 26.08.26 rev16 (Enterprise)</p>
+                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 26.08.26 rev17 (Enterprise)</p>
                     </div>
                  </div>
                  
@@ -2750,7 +2755,7 @@ export default function IbadahTracker() {
 
             <div className="mt-12 pt-6 border-t-2 border-slate-100 text-center leading-relaxed">
                <p className="text-slate-500 text-xs font-black tracking-widest uppercase">© 2026 TafkirCorp. Seluruh hak cipta milik ALLAAH SWT.</p>
-               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 26.08.26 rev16)</p>
+               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 26.08.26 rev17)</p>
             </div>
           </div>
 
