@@ -91,8 +91,9 @@ export default function IbadahTracker() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
   
-  // SIKLUS 4: KUNCI GEMBOK KESIAPAN DATA (Anti Race-Condition)
+  // SIKLUS 4 & 5: KUNCI GEMBOK KESIAPAN DATA & DELAYED SYNC FLAG
   const [isUserProfileLoaded, setIsUserProfileLoaded] = useState(false);
+  const hasSyncedLogin = useRef(false);
   
   // --- STATES DATA UTAMA ---
   const [personalActivities, setPersonalActivities] = useState<any[]>([]);
@@ -168,34 +169,24 @@ export default function IbadahTracker() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ==========================================
-  // 1. INIT AUTH & LAST LOGIN
+  // 1. INIT AUTH (SIKLUS 5: Cache Poisoning Fix)
+  // Proses setDoc DICABUT dari sini, hanya deteksi login murni.
   // ==========================================
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser); 
       setIsInitializing(false);
       
-      if (currentUser) {
-         try {
-            const isSuper = currentUser.email === 'coachardi1453@gmail.com';
-            await setDoc(doc(db, 'users', currentUser.uid), {
-               displayName: currentUser.displayName, 
-               email: currentUser.email,
-               lastLogin: new Date().getTime(), 
-               role: isSuper ? 'superadmin' : undefined
-            }, { merge: true });
-         } catch (e) {
-            console.error("Gagal sinkronisasi login:", e);
-         }
-      } else {
-         setIsUserProfileLoaded(false); // Reset jika logout
+      if (!currentUser) {
+         setIsUserProfileLoaded(false); 
+         hasSyncedLogin.current = false; // Reset gembok jika logout
       }
     });
     return () => unsubscribe();
   }, []);
 
   // ==========================================
-  // 2. FETCH DATA DARI FIREBASE
+  // 2. FETCH DATA & NEW USER CREATION
   // ==========================================
   useEffect(() => {
     if (!user) return;
@@ -214,8 +205,24 @@ export default function IbadahTracker() {
           if (user.email === 'coachardi1453@gmail.com') effectiveRole = 'superadmin';
           setUserRole(effectiveRole);
           
-          // SIKLUS 4: Nyalakan gembok kesiapan data HANYA SETELAH profil sukses dirender
+          // Profil sudah sukses di-render, nyalakan gembok!
           setIsUserProfileLoaded(true);
+       } else {
+          // USER BARU: Cegah error dengan membuat kerangka dasar yang bersih
+          const isSuper = user.email === 'coachardi1453@gmail.com';
+          const initialData: any = {
+              displayName: user.displayName,
+              email: user.email,
+              joinedCommunities: [], // Kantong mutlak aman
+              activities: [],
+              records: {},
+              journals: []
+          };
+          if (isSuper) initialData.role = 'superadmin';
+          
+          setDoc(doc(db, 'users', user.uid), initialData).then(() => {
+              setIsUserProfileLoaded(true);
+          });
        }
        setIsSyncing(false);
     });
@@ -242,6 +249,25 @@ export default function IbadahTracker() {
     return () => { unsubUser(); unsubComms(); unsubGlobal(); };
   }, [user, isSuperAdmin]);
 
+  // ==========================================
+  // SIKLUS 5: DELAYED LOGIN SYNC (PENUMPAS CACHE POISONING)
+  // Menunggu isUserProfileLoaded = TRUE agar Firebase tidak menimpa array kosong
+  // ==========================================
+  useEffect(() => {
+     if (user && isUserProfileLoaded && !hasSyncedLogin.current) {
+        const isSuper = user.email === 'coachardi1453@gmail.com';
+        const payload: any = {
+           lastLogin: new Date().getTime()
+        };
+        // Menambahkan role secara aman tanpa "undefined" yang memicu Firebase Rejection
+        if (isSuper) payload.role = 'superadmin';
+
+        setDoc(doc(db, 'users', user.uid), payload, { merge: true })
+           .then(() => { hasSyncedLogin.current = true; }) // Mengunci gembok eksekusi
+           .catch(e => console.error("Gagal sync login tertunda:", e));
+     }
+  }, [user, isUserProfileLoaded]);
+
   // Daftar Semua User untuk Gamifikasi & Share Jurnal
   useEffect(() => {
     if (!user) return;
@@ -255,7 +281,6 @@ export default function IbadahTracker() {
 
   // SIKLUS 4: PENYEMBUHAN RETROAKTIF DILINDUNGI GEMBOK KESIAPAN DATA (Anti-Race Condition)
   useEffect(() => {
-     // Mesin hanya boleh menyala jika `isUserProfileLoaded` bernilai TRUE
      if (user && isUserProfileLoaded && allCommunities.length > 0) {
         const myOwnedComms = allCommunities.filter(c => c.ownerId === user.uid).map(c => c.id);
         const missingComms = myOwnedComms.filter(id => !joinedCommunityIds.includes(id));
@@ -1467,7 +1492,7 @@ export default function IbadahTracker() {
                     <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center"><img src="/logo.png" alt="Logo" className="w-8 h-8" /></div>
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Tracker IbadahKU</h2>
-                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 26.08.26 rev17 (Enterprise)</p>
+                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 26.08.26 rev18 (Enterprise)</p>
                     </div>
                  </div>
                  
@@ -2250,7 +2275,6 @@ export default function IbadahTracker() {
                         const rec = records[`${getLocalDateStr(d)}-${act.id}`];
                         return (
                           <td key={`${d}-${act.id}`} className="p-1.5 text-center relative cursor-pointer border-r border-slate-100 desktop-tooltip-hover group align-middle" onClick={() => handleRecord(d, act.id, act.time, rec?.status)}>
-                            {/* BUG FIX Zombie Data: Render kotak kosong eksplicit jika status 'none' */}
                             {rec?.status === 'done' ? <div className="w-7 h-7 mx-auto bg-green-100 rounded-lg flex items-center justify-center border border-green-300 shadow-inner"><Check className="text-green-600" size={16} strokeWidth={3}/></div>
                             : rec?.status === 'missed' ? <div className="w-7 h-7 mx-auto bg-red-50 rounded-lg flex items-center justify-center border border-red-200"><X className="text-red-500" size={16} strokeWidth={3}/></div>
                             : <div className="w-7 h-7 mx-auto rounded-lg bg-slate-50 border-2 border-slate-200 hover:border-orange-400 hover:bg-orange-50 transition-colors" />}
@@ -2755,7 +2779,7 @@ export default function IbadahTracker() {
 
             <div className="mt-12 pt-6 border-t-2 border-slate-100 text-center leading-relaxed">
                <p className="text-slate-500 text-xs font-black tracking-widest uppercase">© 2026 TafkirCorp. Seluruh hak cipta milik ALLAAH SWT.</p>
-               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 26.08.26 rev17)</p>
+               <p className="text-slate-400 text-[10px] mt-1 font-bold">Tracker IbadahKU Enterprise Edition (Ver 26.08.26 rev18)</p>
             </div>
           </div>
 
