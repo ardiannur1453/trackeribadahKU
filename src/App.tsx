@@ -1555,7 +1555,7 @@ const handleViewCommActs = (comm: any) => {
         {/* MODAL DAFTAR KOMUNITAS AKTIF & SIKLUS 3: Opt #3 OTONOMI LEAVE GROUP */}
         {showMyCommsModal && (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
-              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative text-left">
                  <button onClick={() => setShowMyCommsModal(false)} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
                  <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><Users className="text-purple-500"/> Daftar Komunitas Aktif</h2>
                  <p className="text-sm font-semibold text-slate-500 mb-6 border-b pb-4">Grup yang Anda ikuti saat ini</p>
@@ -1565,7 +1565,7 @@ const handleViewCommActs = (comm: any) => {
                          if(!c) return null;
                          return (
                              <div key={id} className="bg-slate-50 p-3 rounded-xl border flex justify-between items-center group hover:border-purple-300 transition-colors shadow-sm">
-                                <div className="flex flex-col flex-1 pr-2">
+                                <div className="flex flex-col items-start text-left flex-1 pr-2">
                                     <span className="font-bold text-sm text-slate-700 leading-snug">{c.name}</span>
                                     <button onClick={() => handleViewCommActs(c)} className="text-[10px] font-black bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-0.5 mt-1 rounded w-max flex items-center gap-1 transition-colors border border-purple-200 shadow-sm cursor-pointer">
     <Eye size={10}/> {c.activities?.length || 0} Aktivitas
@@ -1603,7 +1603,7 @@ const handleViewCommActs = (comm: any) => {
         {/* MODAL LIHAT/MANAGE MEMBER */}
         {membersModal.show && (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
-              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative text-left">
                  <button onClick={() => setMembersModal({show:false, commId:'', commName:'', isAdminView: false})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
                  <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><Users className="text-blue-500"/> Anggota Grup</h2>
                  <p className="text-sm font-semibold text-slate-500 mb-6 border-b pb-4">{membersModal.commName}</p>
@@ -1627,7 +1627,7 @@ const handleViewCommActs = (comm: any) => {
         {/* MODAL FULL LEADERBOARD */}
         {fullLeaderboardModal.show && (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
-              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative text-left">
                  <button onClick={() => setFullLeaderboardModal({show:false, commName:'', boardData: []})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
                  <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><ListOrdered className="text-blue-500"/> Peringkat Lengkap</h2>
                  <p className="text-sm font-semibold text-slate-500 mb-6 border-b pb-4">{fullLeaderboardModal.commName}</p>
@@ -1650,14 +1650,14 @@ const handleViewCommActs = (comm: any) => {
 {/* [NEW SIKLUS 6] MODAL RINCIAN AKTIVITAS KOMUNITAS */}
 {viewActsModal.show && (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[140] p-4">
-              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative text-left">
                  <button onClick={() => setViewActsModal({show:false, commName:'', activities: []})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
                  <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><Target className="text-orange-500"/> Aktivitas Wajib</h2>
                  <p className="text-sm font-semibold text-slate-500 mb-6 border-b pb-4">{viewActsModal.commName}</p>
                  <div className="max-h-80 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                      {viewActsModal.activities.map((a, i) => (
                          <div key={i} className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex justify-between items-center group hover:border-orange-300 transition-colors shadow-sm">
-                            <div className="flex flex-col text-left">
+                            <div className="flex flex-col items-start text-left min-w-0">
                                 <span className="font-bold text-sm text-slate-700">{a.name}</span>
                                 <span className="text-[9px] text-slate-400 font-bold uppercase mt-0.5 tracking-widest">{getFreqLabel(a.frequency)}</span>
                             </div>
