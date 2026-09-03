@@ -128,8 +128,13 @@ export default function IbadahTracker() {
   });
 
   const [fullLeaderboardModal, setFullLeaderboardModal] = useState({
-      show: false, commName: '', boardData: [] as any[]
-  });
+    show: false, commName: '', boardData: [] as any[]
+});
+
+// [NEW SIKLUS 6] State untuk Jendela Rincian Aktivitas Grup
+const [viewActsModal, setViewActsModal] = useState({
+    show: false, commName: '', activities: [] as any[]
+});
 
   const [copiedPattern, setCopiedPattern] = useState<{status: string, timestamp: number, dateStr: string}[] | null>(null);
   
@@ -1164,6 +1169,15 @@ export default function IbadahTracker() {
      showToast(`Bergabung ke ${comm.name}! Klik Simpan Perubahan.`);
   };
 
+// [NEW SIKLUS 6] Fungsi pembuka Modal Viewer Aktivitas
+const handleViewCommActs = (comm: any) => {
+    const fullActs = (comm.activities || []).map((a: any) => {
+        const gAct = globalActivities.find(g => g.docId === a.id || g.id === a.id);
+        return { ...a, name: gAct?.name || 'Unknown', frequency: gAct?.frequency || 'daily', freqConfig: gAct?.freqConfig || '' };
+    });
+    setViewActsModal({ show: true, commName: comm.name, activities: fullActs });
+};
+
   const filteredAdminUsers = useMemo(() => {
      let result = allUsers;
      if (userRole === 'admin') {
@@ -1553,7 +1567,9 @@ export default function IbadahTracker() {
                              <div key={id} className="bg-slate-50 p-3 rounded-xl border flex justify-between items-center group hover:border-purple-300 transition-colors shadow-sm">
                                 <div className="flex flex-col flex-1 pr-2">
                                     <span className="font-bold text-sm text-slate-700 leading-snug">{c.name}</span>
-                                    <span className="text-[10px] font-black bg-purple-100 text-purple-700 px-2 py-0.5 mt-1 rounded w-max">{c.activities?.length || 0} Aktivitas</span>
+                                    <button onClick={() => handleViewCommActs(c)} className="text-[10px] font-black bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-0.5 mt-1 rounded w-max flex items-center gap-1 transition-colors border border-purple-200 shadow-sm cursor-pointer">
+    <Eye size={10}/> {c.activities?.length || 0} Aktivitas
+</button>
                                 </div>
                                 <button onClick={() => handleLeaveCommunity(id)} className="text-red-500 hover:text-red-700 bg-white border border-red-200 hover:bg-red-50 px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm shrink-0" title="Keluar dari Grup">
                                     <LogOut size={14}/>
@@ -1914,7 +1930,9 @@ export default function IbadahTracker() {
                                                   <button onClick={()=>{setEditCommId(c.id); setNewCommName(c.name); setSelectedActs(c.activities||[]);}} className="text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 p-1.5 rounded-lg transition-colors"><Edit3 size={14}/></button>
                                                   <button onClick={()=>handleDeleteCommunity(c.id)} className="text-slate-400 hover:text-red-600 bg-slate-50 hover:bg-red-50 p-1.5 rounded-lg transition-colors"><Trash2 size={14}/></button>
                                               </div>
-                                              <p className="text-[10px] text-slate-500 font-bold uppercase mb-3 text-left w-full">{c.activities?.length || 0} Aktivitas Wajib</p>
+                                              <button onClick={() => handleViewCommActs(c)} className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md font-bold uppercase mb-3 text-left flex items-center gap-1.5 transition-colors shadow-sm w-max cursor-pointer">
+    <Eye size={12}/> {c.activities?.length || 0} Aktivitas Wajib
+</button>
                                               <button onClick={() => setMembersModal({show:true, commId: c.id, commName: c.name, isAdminView: true})} className="text-xs bg-slate-50 border border-slate-200 text-slate-600 font-bold px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-100 transition-colors self-start w-max">
                                                   <Users size={14}/> Kelola {getCommunityMembersFull(c.id).length} Anggota
                                               </button>
@@ -1941,7 +1959,9 @@ export default function IbadahTracker() {
                                                   <button onClick={()=>{setEditCommId(c.id); setNewCommName(c.name); setSelectedActs(c.activities||[]);}} className="text-slate-400 hover:text-blue-600 bg-white hover:bg-blue-50 p-1.5 rounded-lg transition-colors shadow-sm"><Edit3 size={14}/></button>
                                                   <button onClick={()=>handleDeleteCommunity(c.id)} className="text-slate-400 hover:text-red-600 bg-white hover:bg-red-50 p-1.5 rounded-lg transition-colors shadow-sm"><Trash2 size={14}/></button>
                                               </div>
-                                              <p className="text-[10px] text-slate-500 font-bold uppercase mb-3 text-left w-full">{c.activities?.length || 0} Aktivitas Wajib</p>
+                                              <button onClick={() => handleViewCommActs(c)} className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md font-bold uppercase mb-3 text-left flex items-center gap-1.5 transition-colors shadow-sm w-max cursor-pointer">
+    <Eye size={12}/> {c.activities?.length || 0} Aktivitas Wajib
+</button>
                                               <button onClick={() => setMembersModal({show:true, commId: c.id, commName: c.name, isAdminView: true})} className="text-xs bg-white border border-red-200 text-red-700 font-bold px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-red-100 transition-colors shadow-sm mb-3 self-start w-max">
                                                   <Users size={14}/> Kelola {getCommunityMembersFull(c.id).length} Anggota
                                               </button>
