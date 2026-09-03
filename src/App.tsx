@@ -136,6 +136,9 @@ const [viewActsModal, setViewActsModal] = useState({
     show: false, commName: '', activities: [] as any[]
 });
 
+// [NEW SIKLUS 6] State untuk Jendela Edukasi 4 Pilar
+const [showPillarInfo, setShowPillarInfo] = useState(false);
+
   const [copiedPattern, setCopiedPattern] = useState<{status: string, timestamp: number, dateStr: string}[] | null>(null);
   
   // --- STATES JURNAL ---
@@ -1412,7 +1415,7 @@ const handleViewCommActs = (comm: any) => {
   }
 
   return (
-    <div className="fixed inset-0 w-full h-full overflow-y-auto bg-slate-50 text-slate-800 font-sans">
+    <div className="fixed inset-0 w-full h-full overflow-y-auto bg-slate-50 text-slate-800 font-sans text-left">
       
       {/* RESTORASI: CSS TOOLTIP MOBILE 1 DETIK DELAY & SIKLUS 3 Opt #1 DELAY 500ms */}
       <style>{`
@@ -1642,6 +1645,48 @@ const handleViewCommActs = (comm: any) => {
                          </div>
                      ))}
                      {fullLeaderboardModal.boardData.length === 0 && <p className="text-center text-sm text-slate-400">Belum ada data kompetisi.</p>}
+                 </div>
+              </div>
+           </div>
+        )}
+
+{/* [NEW SIKLUS 6] MODAL EDUKASI 4 PILAR DISIPLIN */}
+{showPillarInfo && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[140] p-4">
+              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar text-left">
+                 <button onClick={() => setShowPillarInfo(false)} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-colors"><X size={20}/></button>
+                 <h2 className="text-xl font-black text-slate-800 mb-2 flex items-center gap-2"><Shield className="text-blue-500"/> Karakter Disiplin</h2>
+                 <p className="text-sm font-medium text-slate-500 mb-6 border-b border-slate-100 pb-4">Makna psikologis di balik metrik integritas dan konsistensi Anda.</p>
+                 
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-blue-50 border border-blue-100 p-5 rounded-2xl">
+                        <h4 className="font-black text-blue-800 mb-1 flex items-center gap-2"><Target size={16}/> Akuntabilitas <span className="text-xs font-semibold text-blue-600 font-normal">(Keberanian Merespons)</span></h4>
+                        <div className="mt-3 text-xs text-slate-700 space-y-2 leading-relaxed">
+                           <p><strong className="text-slate-800 font-bold">Apa yang diukur:</strong> Persentase kotak laporan yang direspons (baik "Selesai" maupun "Terlewat") dibandingkan dengan total target jadwal yang sudah berlalu.</p>
+                           <p><strong className="text-slate-800 font-bold">Makna Psikologis:</strong> Menguji kejujuran. Sistem lebih menghargai keberanian Anda mengakui kegagalan daripada lari dari kenyataan dengan membiarkannya kosong (ghosting).</p>
+                        </div>
+                    </div>
+                    <div className="bg-purple-50 border border-purple-100 p-5 rounded-2xl">
+                        <h4 className="font-black text-purple-800 mb-1 flex items-center gap-2"><Clock size={16}/> Integritas Waktu <span className="text-xs font-semibold text-purple-600 font-normal">(Ketepatan Lapor)</span></h4>
+                        <div className="mt-3 text-xs text-slate-700 space-y-2 leading-relaxed">
+                           <p><strong className="text-slate-800 font-bold">Apa yang diukur:</strong> Rasio kedisiplinan melaporkan aktivitas tepat waktu pada Hari-H, bukan "dirapel" berhari-hari kemudian.</p>
+                           <p><strong className="text-slate-800 font-bold">Makna Psikologis:</strong> Mengukur kualitas manajemen waktu. Menunda evaluasi menunjukkan integritas yang rapuh dan mengurangi kualitas refleksi diri.</p>
+                        </div>
+                    </div>
+                    <div className="bg-orange-50 border border-orange-100 p-5 rounded-2xl">
+                        <h4 className="font-black text-orange-800 mb-1 flex items-center gap-2"><Flame size={16}/> Daily Streak <span className="text-xs font-semibold text-orange-600 font-normal">(Konsistensi Harian)</span></h4>
+                        <div className="mt-3 text-xs text-slate-700 space-y-2 leading-relaxed">
+                           <p><strong className="text-slate-800 font-bold">Apa yang diukur:</strong> Rantai hari beruntun di mana Anda berhasil menuntaskan minimal satu target aktivitas tanpa pernah terputus (bolong).</p>
+                           <p><strong className="text-slate-800 font-bold">Makna Psikologis:</strong> Metrik daya tahan (endurance). Mempertahankan api streak melatih kegigihan mental agar Anda memastikan selalu ada "kemenangan kecil" tiap harinya.</p>
+                        </div>
+                    </div>
+                    <div className="bg-green-50 border border-green-100 p-5 rounded-2xl">
+                        <h4 className="font-black text-green-800 mb-1 flex items-center gap-2"><Heart size={16}/> Kesehatan Disiplin <span className="text-xs font-semibold text-green-600 font-normal">(Health Points)</span></h4>
+                        <div className="mt-3 text-xs text-slate-700 space-y-2 leading-relaxed">
+                           <p><strong className="text-slate-800 font-bold">Apa yang diukur:</strong> Skor kumulatif "nyawa" (0 - 100). Akan berkurang jika Anda melakukan pelanggaran seperti ghosting absensi atau merapel laporan.</p>
+                           <p><strong className="text-slate-800 font-bold">Makna Psikologis:</strong> Memberikan konsekuensi virtual atas kelalaian. Mempertahankan 100 HP melambangkan keutuhan komitmen dan disiplin yang sempurna tanpa cacat.</p>
+                        </div>
+                    </div>
                  </div>
               </div>
            </div>
@@ -2702,7 +2747,7 @@ const handleViewCommActs = (comm: any) => {
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 mt-6">
-                     <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm flex flex-col h-full">
+                     <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm flex flex-col h-full text-left">
                         <p className="text-[10px] font-black text-blue-600 uppercase mb-3 flex items-center justify-between border-b border-blue-50 pb-2">👤 Pribadi <span className="text-[9px] font-bold bg-blue-50 px-2 py-0.5 rounded text-blue-800">Total: {stats.qty.p_done + stats.qty.p_miss}</span></p>
                         <div className="flex justify-between mb-1"><span className="text-xs text-slate-500 font-bold">Selesai:</span><span className="text-sm font-black text-green-600">{stats.qty.p_done}</span></div>
                         <div className="flex justify-between mb-4"><span className="text-xs text-slate-500 font-bold">Terlewat:</span><span className="text-sm font-black text-red-500">{stats.qty.p_miss}</span></div>
@@ -2717,7 +2762,7 @@ const handleViewCommActs = (comm: any) => {
                            </div>
                         </div>
                      </div>
-                     <div className="bg-white p-4 rounded-xl border border-purple-100 shadow-sm flex flex-col h-full">
+                     <div className="bg-white p-4 rounded-xl border border-purple-100 shadow-sm flex flex-col h-full text-left">
                         <p className="text-[10px] font-black text-purple-600 uppercase mb-3 flex items-center justify-between border-b border-purple-50 pb-2">👥 Komunitas <span className="text-[9px] font-bold bg-purple-50 px-2 py-0.5 rounded text-purple-800">Total: {stats.qty.c_done + stats.qty.c_miss}</span></p>
                         <div className="flex justify-between mb-1"><span className="text-xs text-slate-500 font-bold">Selesai:</span><span className="text-sm font-black text-green-600">{stats.qty.c_done}</span></div>
                         <div className="flex justify-between mb-4"><span className="text-xs text-slate-500 font-bold">Terlewat:</span><span className="text-sm font-black text-red-500">{stats.qty.c_miss}</span></div>
@@ -2737,29 +2782,32 @@ const handleViewCommActs = (comm: any) => {
 
                {/* --- 4 PILAR KARAKTER DISIPLIN --- */}
                <div className="bg-slate-50 rounded-2xl p-6 md:p-8 border border-slate-200">
-                  <h3 className="text-lg font-black text-slate-800 mb-2 text-center flex items-center justify-center gap-2"><Shield className="text-blue-500"/> Kartu Karakter Disiplin</h3>
+                  <div className="flex items-center justify-center gap-3 mb-2">
+   <h3 className="text-lg font-black text-slate-800 flex items-center gap-2"><Shield className="text-blue-500"/> Kartu Karakter Disiplin</h3>
+   <button onClick={() => setShowPillarInfo(true)} className="text-slate-400 hover:text-blue-600 transition-colors bg-white p-1 rounded-full shadow-sm border border-slate-200" title="Penjelasan Metrik"><Info size={14}/></button>
+</div>
                   <p className="text-[10px] text-center text-slate-500 mb-6 px-4">Empat pilar analisis psikologis yang merekam tingkat integritas dan konsistensi Anda.</p>
 
                   <div className="grid grid-cols-2 gap-4">
-                     <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm relative overflow-hidden group">
+                     <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm relative overflow-hidden group text-left">
                         <div className="absolute top-0 left-0 w-2 h-full bg-blue-500"></div>
                         <p className="text-[10px] text-blue-700 font-black uppercase tracking-widest mb-1 flex items-center gap-1.5 pl-2"><Target size={14}/> Akuntabilitas</p>
                         <p className="text-[8px] text-slate-400 mb-2 pl-2">Keberanian merespon tanpa *ghosting*</p>
                         <p className="text-3xl font-black text-slate-800 pl-2">{stats.noGhostingRate}%</p>
                      </div>
-                     <div className="bg-white p-4 rounded-xl border border-purple-200 shadow-sm relative overflow-hidden group">
+                     <div className="bg-white p-4 rounded-xl border border-purple-200 shadow-sm relative overflow-hidden group text-left">
                         <div className="absolute top-0 left-0 w-2 h-full bg-purple-500"></div>
                         <p className="text-[10px] text-purple-700 font-black uppercase tracking-widest mb-1 flex items-center gap-1.5 pl-2"><Clock size={14}/> Integritas Waktu</p>
                         <p className="text-[8px] text-slate-400 mb-2 pl-2">Ketepatan lapor vs rapelan</p>
                         <p className="text-3xl font-black text-slate-800 pl-2">{stats.onTimeRate}%</p>
                      </div>
-                     <div className="bg-white p-4 rounded-xl border border-orange-200 shadow-sm relative overflow-hidden group">
+                     <div className="bg-white p-4 rounded-xl border border-orange-200 shadow-sm relative overflow-hidden group text-left">
                         <div className="absolute top-0 left-0 w-2 h-full bg-orange-500"></div>
                         <p className="text-[10px] text-orange-700 font-black uppercase tracking-widest mb-1 flex items-center gap-1.5 pl-2"><Flame size={14}/> Daily Streak</p>
                         <p className="text-[8px] text-slate-400 mb-2 pl-2">Konsistensi harian tanpa putus</p>
                         <p className="text-3xl font-black text-slate-800 pl-2">{stats.currentStreak} <span className="text-sm text-slate-500 font-bold">Hari</span></p>
                      </div>
-                     <div className="bg-white p-4 rounded-xl border border-green-200 shadow-sm relative overflow-hidden group">
+                     <div className="bg-white p-4 rounded-xl border border-green-200 shadow-sm relative overflow-hidden group text-left">
                         <div className="absolute top-0 left-0 w-2 h-full bg-green-500"></div>
                         <p className="text-[10px] text-green-700 font-black uppercase tracking-widest mb-1 flex items-center gap-1.5 pl-2"><Heart size={14}/> Kesehatan Disiplin</p>
                         <p className="text-[8px] text-slate-400 mb-2 pl-2">Skor nyawa (Penalti rapelan & absen)</p>
