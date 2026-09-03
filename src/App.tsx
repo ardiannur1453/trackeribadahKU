@@ -1551,12 +1551,6 @@ const handleViewCommActs = (comm: any) => {
                        </ul>
                     </div>
                  </div>
-                 
-                 <div className="mt-8 pt-6 border-t border-slate-100 flex justify-center">
-                    <a href="https://wa.me/6285117351453" target="_blank" rel="noreferrer" className="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold py-3 px-8 rounded-xl shadow-[0_5px_15px_rgba(16,185,129,0.4)] hover:shadow-lg hover:-translate-y-1 transition-all flex items-center gap-2 text-sm border border-green-400">
-                        <Crown size={18}/> Upgrade ke Reguler / Premium via WhatsApp
-                    </a>
-                 </div>
               </div>
            </div>
         )}
@@ -2172,7 +2166,7 @@ const handleViewCommActs = (comm: any) => {
         )}
 
         {/* ================= AREA KONTEN UTAMA ================= */}
-        <div className="max-w-7xl mx-auto space-y-8 pb-12">
+        <div className="max-w-7xl mx-auto space-y-8 pb-40">
           
           {/* HEADER STICKY DASHBOARD (OPTIMASI #1: Compact & Sleek) */}
           <div className="sticky top-0 z-[100] bg-white/90 backdrop-blur-md rounded-b-3xl shadow-sm border-b border-slate-200 py-3 px-4 sm:px-6 flex flex-row justify-between items-center gap-4 transition-all">
@@ -2736,20 +2730,6 @@ const handleViewCommActs = (comm: any) => {
             </div>
             <p className="text-center text-[10px] font-semibold text-slate-400 mb-10 italic">*Grafik Area Gabungan memvisualisasikan kedisiplinan murni Anda bulan ini tanpa redudansi (Double-Input) akibat tabrakan irisan jadwal grup dan pribadi.</p>
 
-            {userRole === 'demo' ? (
-                <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-2xl p-8 sm:p-12 text-center flex flex-col items-center justify-center my-8">
-                    <div className="w-20 h-20 bg-slate-200 rounded-full flex items-center justify-center mb-6 shadow-inner">
-                        <Crown size={40} className="text-slate-400" />
-                    </div>
-                    <h3 className="text-xl sm:text-2xl font-black text-slate-700 mb-3">Fitur Analisa Lanjutan Terkunci</h3>
-                    <p className="text-sm text-slate-500 mb-8 max-w-lg leading-relaxed">Akun Demo hanya dapat mengakses rekapan grafik harian. Buka wawasan mendalam seperti Bedah Kuantitas, 4 Pilar Psikologis, dan Tren Jangka Panjang (M-to-M) dengan meng-upgrade akun Anda.</p>
-                    <a href="https://wa.me/6285117351453" target="_blank" rel="noreferrer" className="bg-green-600 text-white font-black py-4 px-8 rounded-xl shadow-lg hover:bg-green-700 hover:-translate-y-1 transition-all flex items-center gap-2 text-sm border-2 border-green-500">
-                        <Crown size={18}/> Hubungi Admin via WhatsApp
-                    </a>
-                </div>
-            ) : (
-            <>
-
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
                {/* --- BEDAH KUANTITAS MURNI --- */}
                <div className="bg-slate-50 rounded-2xl p-6 md:p-8 border border-slate-200 flex flex-col justify-center">
@@ -2887,9 +2867,6 @@ const handleViewCommActs = (comm: any) => {
                   </div>
                </div>
             </div>
-
-            </>
-            )}
 
             <div className="mt-12 pt-6 border-t-2 border-slate-100 text-center leading-relaxed">
                <p className="text-slate-500 text-xs font-black tracking-widest uppercase">© 2026 TafkirCorp. Seluruh hak cipta milik ALLAAH SWT.</p>
