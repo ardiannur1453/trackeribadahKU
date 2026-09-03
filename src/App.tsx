@@ -371,6 +371,7 @@ const [showPillarInfo, setShowPillarInfo] = useState(false);
   }, [globalActivities]);
 
   const communityActivities = useMemo(() => {
+     if (userRole === 'demo') return []; // [UPDATED] Optimasi Sprint 1: State Masking Demo
      let commActsMap: Record<string, any> = {};
      joinedCommunityIds.forEach(commId => {
         const comm = allCommunities.find(c => c.id === commId);
@@ -431,8 +432,9 @@ const [showPillarInfo, setShowPillarInfo] = useState(false);
 
   // Smart Truncation Array (Anti-Crash Graceful Degradation)
   const joinedCommunityNamesArray = useMemo(() => {
+     if (userRole === 'demo') return []; // [UPDATED] Optimasi Sprint 1: State Masking Demo
      return joinedCommunityIds.map(id => allCommunities.find(c => c.id === id)?.name).filter(Boolean);
-  }, [joinedCommunityIds, allCommunities]);
+  }, [joinedCommunityIds, allCommunities, userRole]);
 
   const daysInMonth = useMemo(() => {
     const year = currentDate.getFullYear(); 
@@ -2544,7 +2546,7 @@ const handleViewCommActs = (comm: any) => {
           </div>
 
           {/* ================= GAMIFIKASI (PODIUM GRID & REAL-TIME CALCULATOR) ================= */}
-          {joinedCommunityIds.length > 0 && (
+          {joinedCommunityIds.length > 0 && userRole !== 'demo' && (
              <div className="space-y-8 pt-4">
                 <div className="flex items-center gap-3">
                    <Award size={32} className="text-yellow-500" strokeWidth={2.5}/>
