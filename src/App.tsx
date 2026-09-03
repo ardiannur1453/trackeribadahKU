@@ -216,19 +216,18 @@ const [showPillarInfo, setShowPillarInfo] = useState(false);
           // Profil sudah sukses di-render, nyalakan gembok!
           setIsUserProfileLoaded(true);
        } else {
-          // USER BARU: Cegah error dengan membuat kerangka dasar yang bersih
+          // [SUPER FIX SIKLUS 6]: Blokir Overwrite Akibat Cache Lag
+          if (snap.metadata.fromCache) return; 
+          
           const isSuper = user.email === 'coachardi1453@gmail.com';
           const initialData: any = {
               displayName: user.displayName,
-              email: user.email,
-              joinedCommunities: [], // Kantong mutlak aman
-              activities: [],
-              records: {},
-              journals: []
+              email: user.email
           };
           if (isSuper) initialData.role = 'superadmin';
           
-          setDoc(doc(db, 'users', user.uid), initialData).then(() => {
+          // MERGE: TRUE memastikan data lama TIDAK TERHAPUS jika ternyata ada di server!
+          setDoc(doc(db, 'users', user.uid), initialData, { merge: true }).then(() => {
               setIsUserProfileLoaded(true);
           });
        }
