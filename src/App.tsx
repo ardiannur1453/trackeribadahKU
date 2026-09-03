@@ -139,6 +139,9 @@ const [viewActsModal, setViewActsModal] = useState({
 // [NEW SIKLUS 6] State untuk Jendela Edukasi 4 Pilar
 const [showPillarInfo, setShowPillarInfo] = useState(false);
 
+// [NEW SPRINT 2] State Dasbor Analisa Member (Read-Only)
+const [memberAnalyticsModal, setMemberAnalyticsModal] = useState({ show: false, user: null as any });
+
   const [copiedPattern, setCopiedPattern] = useState<{status: string, timestamp: number, dateStr: string}[] | null>(null);
   
   // --- STATES JURNAL ---
@@ -1464,6 +1467,62 @@ const handleViewCommActs = (comm: any) => {
       <div className="min-h-full p-2 md:p-6 relative">
         {/* ================= MODALS ================= */}
 
+        {/* [NEW SPRINT 2] MODAL DASBOR ANALISA MEMBER (READ-ONLY) */}
+        {memberAnalyticsModal.show && memberAnalyticsModal.user && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
+              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar text-left">
+                 <button onClick={() => setMemberAnalyticsModal({show: false, user: null})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-colors"><X size={20}/></button>
+                 
+                 <div className="flex items-center gap-4 mb-8 border-b border-slate-100 pb-6">
+                    <div className="w-16 h-16 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-center shadow-inner">
+                       <Activity size={32} className="text-blue-600"/>
+                    </div>
+                    <div>
+                       <h2 className="text-2xl font-black text-slate-800">Dasbor Analisa Member</h2>
+                       <p className="text-sm font-bold text-slate-500 mt-1">Laporan Read-Only: <span className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">{memberAnalyticsModal.user.displayName || 'Anonim'}</span></p>
+                    </div>
+                 </div>
+
+                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                    <div className="bg-orange-50 p-4 rounded-2xl border border-orange-200 shadow-sm relative overflow-hidden text-left">
+                       <p className="text-[10px] text-orange-700 font-black uppercase tracking-widest mb-1 flex items-center gap-1.5"><Flame size={14}/> Daily Streak</p>
+                       <p className="text-3xl font-black text-slate-800 mt-2">{memberAnalyticsModal.user.daily_streak || 0} <span className="text-xs text-slate-500 font-bold">Hari</span></p>
+                    </div>
+                    <div className="bg-green-50 p-4 rounded-2xl border border-green-200 shadow-sm relative overflow-hidden text-left">
+                       <p className="text-[10px] text-green-700 font-black uppercase tracking-widest mb-1 flex items-center gap-1.5"><Heart size={14}/> Health Pts</p>
+                       <p className="text-3xl font-black text-slate-800 mt-2">{memberAnalyticsModal.user.hp_score ?? 100} <span className="text-xs text-slate-500 font-bold">HP</span></p>
+                    </div>
+                    <div className="bg-blue-50 p-4 rounded-2xl border border-blue-200 shadow-sm relative overflow-hidden text-left col-span-2">
+                       <p className="text-[10px] text-blue-700 font-black uppercase tracking-widest mb-1 flex items-center gap-1.5"><BarChart2 size={14}/> Total Aksi (All Time)</p>
+                       <div className="flex gap-4 mt-2">
+                           <div className="flex-1 bg-white p-2.5 rounded-xl border border-blue-100 shadow-sm"><span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest block mb-0.5">Selesai</span><span className="text-xl font-black text-green-600">{Object.values(memberAnalyticsModal.user.records || {}).filter((r:any)=>r.status==='done').length}</span></div>
+                           <div className="flex-1 bg-white p-2.5 rounded-xl border border-blue-100 shadow-sm"><span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest block mb-0.5">Terlewat</span><span className="text-xl font-black text-red-500">{Object.values(memberAnalyticsModal.user.records || {}).filter((r:any)=>r.status==='missed').length}</span></div>
+                       </div>
+                    </div>
+                 </div>
+
+                 <h3 className="text-sm font-black text-slate-800 mb-3 flex items-center gap-2"><Target size={16} className="text-purple-500"/> Komitmen Aktif Member</h3>
+                 <div className="max-h-60 overflow-y-auto space-y-2 pr-2 custom-scrollbar bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                    {memberAnalyticsModal.user.activities?.map((a: any) => {
+                       const gAct = globalActivities.find((g: any) => g.docId === a.id);
+                       const actName = gAct ? gAct.name : a.name;
+                       return (
+                          <div key={a.id} className="bg-white p-3 rounded-xl border border-slate-200 flex justify-between items-center shadow-sm hover:border-purple-300 transition-colors">
+                             <div className="flex flex-col items-start text-left">
+                                <span className="font-bold text-sm text-slate-700">{actName}</span>
+                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{a.frequency || 'daily'}</span>
+                             </div>
+                             <span className="text-xs font-black text-purple-600 bg-purple-50 border border-purple-200 px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1.5"><Clock size={12}/> {a.time}</span>
+                          </div>
+                       )
+                    })}
+                    {(!memberAnalyticsModal.user.activities || memberAnalyticsModal.user.activities.length === 0) && <p className="text-center text-xs text-slate-400 italic py-4">Member ini belum menambahkan komitmen apapun.</p>}
+                 </div>
+                 
+              </div>
+           </div>
+        )}
+
         {/* MODAL SETTINGS */}
         {showSettingsModal && (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
@@ -1621,11 +1680,16 @@ const handleViewCommActs = (comm: any) => {
                      {getCommunityMembersFull(membersModal.commId).map((u, i) => (
                          <div key={u.id} className="bg-slate-50 p-3 rounded-xl border flex justify-between items-center group hover:border-blue-300 transition-colors">
                             <span className="font-bold text-sm text-slate-700">{i+1}. {u.displayName || 'Anonim'}</span>
-                            {membersModal.isAdminView && (
-                                <button onClick={() => handleKickMember(u.id)} className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded-lg font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 hover:bg-red-100">
-                                   <UserMinus size={12}/> Keluarkan
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={() => { setMembersModal({...membersModal, show: false}); setMemberAnalyticsModal({show: true, user: u}); }} className="text-xs bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-blue-100">
+                                   <Activity size={12}/> Analisa
                                 </button>
-                            )}
+                                {membersModal.isAdminView && (
+                                    <button onClick={() => handleKickMember(u.id)} className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-red-100">
+                                       <UserMinus size={12}/> Keluarkan
+                                    </button>
+                                )}
+                            </div>
                          </div>
                      ))}
                      {getCommunityMembersFull(membersModal.commId).length === 0 && <p className="text-center text-sm text-slate-400">Belum ada anggota.</p>}
@@ -1890,11 +1954,12 @@ const handleViewCommActs = (comm: any) => {
                                    return (
                                    <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
                                       <td className="p-4">
-                                          <div className="flex items-center gap-2">
+                                          <div className="flex items-center gap-2 flex-wrap">
                                              <p className="font-bold text-slate-800">{u.displayName || 'Anonim'}</p>
                                              {u.role === 'superadmin' && <span className="text-[8px] bg-red-100 text-red-700 px-1 rounded uppercase font-black">Super</span>}
                                              {u.role === 'admin' && <span className="text-[8px] bg-orange-100 text-orange-700 px-1 rounded uppercase font-black">Admin</span>}
                                              {u.role === 'demo' && <span className="text-[8px] bg-slate-200 text-slate-500 px-1 rounded uppercase font-black">Demo</span>}
+                                             <button onClick={() => setMemberAnalyticsModal({show: true, user: u})} className="ml-1 text-[9px] bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 px-2 py-0.5 rounded shadow-sm flex items-center gap-1 font-bold transition-colors"><Activity size={10}/> Lihat Analisa</button>
                                           </div>
                                           <p className="text-[9px] font-semibold text-slate-500 uppercase mt-1">Komunitas: <span className="text-blue-600">{usrComms}</span></p>
                                       </td>
