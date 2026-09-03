@@ -9,7 +9,7 @@ import {
   ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, 
   Award, Search, Shield, Medal, Users, Info, KeyRound, Copy, Target, 
   Clock, Calendar, Activity, Settings, Crown, UserMinus, FileUp, 
-  FileDown, ClipboardPaste, Files, Undo2, Redo2, ListOrdered, Megaphone, Flame, Heart, Link as LinkIcon
+  FileDown, ClipboardPaste, Files, Undo2, Redo2, ListOrdered, Megaphone, Flame, Heart, Link as LinkIcon, Bell, Send
 } from 'lucide-react';
 
 // ==========================================
@@ -142,6 +142,11 @@ const [showPillarInfo, setShowPillarInfo] = useState(false);
 // [NEW SPRINT 2] State Dasbor Analisa Member (Read-Only)
 const [memberAnalyticsModal, setMemberAnalyticsModal] = useState({ show: false, user: null as any });
 
+// [NEW SPRINT 3] State Notifikasi Tersentralisasi
+const [notifications, setNotifications] = useState<any[]>([]);
+const [showNotifModal, setShowNotifModal] = useState(false);
+const [newNotif, setNewNotif] = useState({ title: '', body: '', targetId: 'all' });
+
   const [copiedPattern, setCopiedPattern] = useState<{status: string, timestamp: number, dateStr: string}[] | null>(null);
   
   // --- STATES JURNAL ---
@@ -160,7 +165,7 @@ const [memberAnalyticsModal, setMemberAnalyticsModal] = useState({ show: false, 
   const isSuperAdmin = user?.email === 'coachardi1453@gmail.com';
   const isAdmin = isSuperAdmin || userRole === 'admin';
   const [showAdminPanel, setShowAdminPanel] = useState(false);
-  const [adminTab, setAdminTab] = useState<'users' | 'communities' | 'globalacts' | 'characters'>('users');
+  const [adminTab, setAdminTab] = useState<'users' | 'communities' | 'globalacts' | 'characters' | 'notifs'>('users');
   const [adminCommTab, setAdminCommTab] = useState<'my' | 'others'>('my');
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [adminSearch, setAdminSearch] = useState('');
@@ -277,6 +282,46 @@ const [memberAnalyticsModal, setMemberAnalyticsModal] = useState({ show: false, 
            .catch(e => console.error("Gagal sync login tertunda:", e));
      }
   }, [user, isUserProfileLoaded]);
+
+// [NEW SPRINT 3] Listener Database Notifikasi & Logika Unread
+useEffect(() => {
+   if (!user) return;
+   const unsubNotifs = onSnapshot(collection(db, 'notifications'), (snap) => {
+      const notifsData: any[] = []; 
+      snap.forEach(d => notifsData.push({ id: d.id, ...d.data() })); 
+      setNotifications(notifsData.sort((a, b) => b.timestamp - a.timestamp));
+   });
+   return () => unsubNotifs();
+ }, [user]);
+
+ const myNotifs = useMemo(() => {
+    if (!user) return [];
+    return notifications.filter(n => n.targetId === 'all' || n.targetId === user.uid || joinedCommunityIds.includes(n.targetId));
+ }, [notifications, user, joinedCommunityIds]);
+
+ const unreadNotifCount = useMemo(() => {
+    const lastRead = user?.lastReadNotifTime || 0;
+    return myNotifs.filter(n => n.timestamp > lastRead).length;
+ }, [myNotifs, user]);
+
+ const handleOpenNotifs = () => {
+    setShowNotifModal(true);
+    if (unreadNotifCount > 0) {
+        setDoc(doc(db, 'users', user.uid), { lastReadNotifTime: Date.now() }, { merge: true });
+    }
+ };
+
+ const handleSendNotif = async () => {
+    if (!newNotif.title.trim() || !newNotif.body.trim()) return showToast("Judul dan isi notifikasi wajib diisi!");
+    try {
+        await addDoc(collection(db, 'notifications'), {
+            title: newNotif.title, body: newNotif.body, targetId: newNotif.targetId,
+            senderName: user.displayName || 'Admin', timestamp: Date.now()
+        });
+        showToast("Notifikasi berhasil dikirim!");
+        setNewNotif({ title: '', body: '', targetId: 'all' });
+    } catch(e) { showToast("Gagal mengirim notifikasi."); }
+ };
 
   // Daftar Semua User untuk Gamifikasi & Share Jurnal
   useEffect(() => {
@@ -1523,6 +1568,30 @@ const handleViewCommActs = (comm: any) => {
            </div>
         )}
 
+{/* [NEW SPRINT 3] MODAL NOTIFIKASI (LONCENG) */}
+{showNotifModal && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[140] p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative text-left max-h-[85vh] flex flex-col">
+                 <button onClick={() => setShowNotifModal(false)} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+                 <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><Bell className="text-orange-500"/> Notifikasi Anda</h2>
+                 <p className="text-sm font-semibold text-slate-500 mb-4 border-b border-slate-100 pb-4">Pengumuman & info dari Admin</p>
+                 
+                 <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar flex-1">
+                     {myNotifs.length === 0 ? <p className="text-center text-sm text-slate-400 py-8 italic border-2 border-dashed border-slate-200 rounded-2xl">Belum ada notifikasi untuk Anda.</p> : myNotifs.map((n, i) => (
+                         <div key={n.id || i} className="bg-orange-50/50 p-4 rounded-xl border border-orange-100 flex flex-col gap-1.5 shadow-sm group hover:bg-white hover:border-orange-300 transition-colors">
+                            <div className="flex justify-between items-start gap-2">
+                                <span className="font-bold text-sm text-slate-800 leading-snug">{n.title}</span>
+                                <span className="text-[9px] font-black text-orange-600 bg-orange-100 px-1.5 py-0.5 rounded whitespace-nowrap">{new Date(n.timestamp).toLocaleDateString('id-ID', {day:'numeric', month:'short'})}</span>
+                            </div>
+                            <p className="text-xs text-slate-600 leading-relaxed font-medium">{n.body}</p>
+                            <p className="text-[8px] font-black uppercase text-slate-400 mt-2 tracking-widest bg-slate-100 w-max px-2 py-1 rounded">Dari: {n.senderName} {n.targetId === 'all' ? '(Global)' : '(Grup)'}</p>
+                         </div>
+                     ))}
+                 </div>
+              </div>
+           </div>
+        )}
+
         {/* MODAL SETTINGS */}
         {showSettingsModal && (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
@@ -1907,6 +1976,7 @@ const handleViewCommActs = (comm: any) => {
                     <button onClick={()=>{setAdminTab('communities'); setEditCommId(null); setNewCommName(''); setSelectedActs([]);}} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap ${adminTab === 'communities' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Kelola Komunitas & Kode Join</button>
                     {isSuperAdmin && <button onClick={()=>{setAdminTab('globalacts'); setEditGlobalActId(null); setNewGlobalAct({name: '', time: '00:00', frequency: 'daily', freqConfig: ''});}} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap ${adminTab === 'globalacts' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Master Ibadah Global</button>}
                     {isSuperAdmin && <button onClick={()=>setAdminTab('characters')} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap ${adminTab === 'characters' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Top Karakter Disiplin</button>}
+                    <button onClick={()=>setAdminTab('notifs')} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap flex items-center gap-1.5 ${adminTab === 'notifs' ? 'text-orange-600 border-orange-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}><Megaphone size={14}/> Broadcast Notifikasi</button>
                  </div>
 
                  {adminTab === 'users' ? (
@@ -2204,7 +2274,35 @@ const handleViewCommActs = (comm: any) => {
                             </div>
                         </div>
                     </div>
-                 )}
+                 ) : adminTab === 'notifs' ? (
+                    <div className="bg-orange-50 p-6 md:p-8 rounded-3xl border border-orange-200 max-w-2xl mx-auto shadow-sm">
+                        <h3 className="font-black text-orange-800 mb-2 flex items-center gap-2 text-xl"><Send size={20}/> Broadcast Pengumuman</h3>
+                        <p className="text-sm text-orange-600 mb-6 border-b border-orange-200 pb-4">Kirimkan notifikasi (Push Alert In-App) langsung ke ikon Lonceng anggota.</p>
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-black uppercase tracking-widest text-orange-800 mb-2">Target Penerima</label>
+                                <select value={newNotif.targetId} onChange={e => setNewNotif({...newNotif, targetId: e.target.value})} className="w-full bg-white border-2 border-orange-200 rounded-xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:border-orange-500 cursor-pointer shadow-sm">
+                                    {isSuperAdmin && <option value="all">🌐 Seluruh Pengguna Aplikasi (Global)</option>}
+                                    <optgroup label="Grup Komunitas Anda">
+                                        {allCommunities.filter(c => isSuperAdmin || c.ownerId === user.uid).map(c => (
+                                            <option key={c.id} value={c.id}>👥 Grup: {c.name}</option>
+                                        ))}
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black uppercase tracking-widest text-orange-800 mb-2">Judul Notifikasi</label>
+                                <input type="text" placeholder="Cth: Tantangan Baru Minggu Ini!" value={newNotif.title} onChange={e => setNewNotif({...newNotif, title: e.target.value})} className="w-full bg-white border-2 border-orange-200 rounded-xl p-3.5 text-sm font-bold text-slate-800 outline-none focus:border-orange-500 shadow-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-black uppercase tracking-widest text-orange-800 mb-2">Pesan Lengkap</label>
+                                <textarea placeholder="Tuliskan detail pengumuman untuk menyemangati tim..." value={newNotif.body} onChange={e => setNewNotif({...newNotif, body: e.target.value})} className="w-full bg-white border-2 border-orange-200 rounded-xl p-3.5 text-sm font-medium text-slate-700 outline-none focus:border-orange-500 min-h-[120px] resize-none shadow-sm leading-relaxed" />
+                            </div>
+                            <button onClick={handleSendNotif} className="w-full bg-orange-600 text-white font-black py-4 mt-2 rounded-xl shadow-lg hover:bg-orange-700 hover:-translate-y-1 transition-all flex items-center justify-center gap-2"><Send size={18}/> Kirim Notifikasi Sekarang</button>
+                        </div>
+                    </div>
+                 ) : null}
               </div>
            </div>
         )}
@@ -2263,7 +2361,11 @@ const handleViewCommActs = (comm: any) => {
                      {isSyncing ? <span className="text-blue-500 flex items-center gap-1"><RefreshCw size={10} className="animate-spin"/> Syncing</span> : <span className="text-green-600 flex items-center gap-1"><Zap size={10}/> Synced</span>}
                  </div>
                </div>
-               
+               <button onClick={handleOpenNotifs} className="relative p-1.5 sm:px-3 sm:py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-orange-600 hover:bg-orange-50 hover:border-orange-200 rounded-xl transition-all shadow-sm flex items-center gap-1.5">
+                   <Bell size={16}/>
+                   {unreadNotifCount > 0 && <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[8px] font-black text-white shadow-md animate-bounce">{unreadNotifCount}</span>}
+               </button>
+
                <button onClick={() => setShowInfoModal(true)} className="p-1.5 sm:px-3 sm:py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-blue-600 hover:bg-blue-50 hover:border-blue-200 rounded-xl transition-all shadow-sm flex items-center gap-1.5">
                    <Info size={16}/> <span className="hidden sm:block text-[10px] font-bold uppercase tracking-wide">Info</span>
                </button>
