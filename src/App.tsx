@@ -1631,6 +1631,29 @@ export default function IbadahTracker() {
            </div>
         )}
 
+{/* [NEW SIKLUS 6] MODAL RINCIAN AKTIVITAS KOMUNITAS */}
+{viewActsModal.show && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[140] p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative">
+                 <button onClick={() => setViewActsModal({show:false, commName:'', activities: []})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+                 <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><Target className="text-orange-500"/> Aktivitas Wajib</h2>
+                 <p className="text-sm font-semibold text-slate-500 mb-6 border-b pb-4">{viewActsModal.commName}</p>
+                 <div className="max-h-80 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                     {viewActsModal.activities.map((a, i) => (
+                         <div key={i} className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex justify-between items-center group hover:border-orange-300 transition-colors shadow-sm">
+                            <div className="flex flex-col text-left">
+                                <span className="font-bold text-sm text-slate-700">{a.name}</span>
+                                <span className="text-[9px] text-slate-400 font-bold uppercase mt-0.5 tracking-widest">{getFreqLabel(a.frequency)}</span>
+                            </div>
+                            <span className="text-xs font-black text-orange-600 bg-orange-100 border border-orange-200 px-2 py-1 rounded shadow-sm">{a.time}</span>
+                         </div>
+                     ))}
+                     {viewActsModal.activities.length === 0 && <p className="text-center text-sm text-slate-400">Tidak ada aktivitas wajib.</p>}
+                 </div>
+              </div>
+           </div>
+        )}
+
         {/* MODAL JOIN KOMUNITAS */}
         {showJoinModal && (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
