@@ -2246,7 +2246,7 @@ const handleViewCommActs = (comm: any) => {
                           </div>
                        </div>
                     </div>
-                 ) : (
+                 ) : adminTab === 'characters' ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {/* TAB KARAKTER DISIPLIN TERBAIK (SUPER ADMIN ONLY) */}
                         <div className="bg-white border border-red-200 p-6 rounded-2xl shadow-sm">
