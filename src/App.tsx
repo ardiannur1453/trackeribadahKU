@@ -2273,7 +2273,7 @@ const handleViewCommActs = (comm: any) => {
                                {linkedComms && (
                                    <div className="relative group/link delay-500-trigger cursor-help flex items-center shrink-0">
                                        <LinkIcon size={12} className="text-blue-500/70 hover:text-blue-600 transition-colors" />
-                                       <div className={`absolute opacity-0 invisible tooltip-content-delay transition-all duration-300 left-1/2 -translate-x-1/2 w-48 bg-blue-900 text-white text-[9px] font-bold text-center p-2.5 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
+                                       <div className={`absolute opacity-0 invisible tooltip-content-delay transition-opacity duration-300 left-1/2 -translate-x-1/2 w-48 bg-blue-900 text-white text-[9px] font-bold text-center p-2.5 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
                                            🔗 Aktivitas Terhubung (Linked). Laporan pada baris ini saling tersinkron otomatis.<br/><br/>
                                            <span className="text-blue-300">Terhubung dengan grup: {linkedComms.join(', ')}</span>
                                            <div className={`absolute left-1/2 -translate-x-1/2 w-2 h-2 bg-blue-900 rotate-45 ${isTopRow ? '-top-1 border-l border-t border-blue-900' : '-bottom-1 border-b border-r border-blue-900'}`}></div>
@@ -2284,7 +2284,7 @@ const handleViewCommActs = (comm: any) => {
                                {!isSafe && (
                                    <div className="relative group/alert delay-500-trigger cursor-help">
                                        <AlertTriangle size={14} className="text-red-500 animate-pulse" />
-                                       <div className={`absolute opacity-0 invisible tooltip-content-delay transition-all duration-300 left-1/2 -translate-x-1/2 w-48 bg-red-900 text-white text-[9px] font-bold text-center p-2 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
+                                       <div className={`absolute opacity-0 invisible tooltip-content-delay transition-opacity duration-300 left-1/2 -translate-x-1/2 w-48 bg-red-900 text-white text-[9px] font-bold text-center p-2 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
                                            Pelaksanaan di bawah 50% dari target hari yang telah berlalu!
                                            <div className={`absolute left-1/2 -translate-x-1/2 w-2 h-2 bg-red-900 rotate-45 ${isTopRow ? '-top-1 border-l border-t border-red-900' : '-bottom-1 border-b border-r border-red-900'}`}></div>
                                        </div>
@@ -2324,7 +2324,7 @@ const handleViewCommActs = (comm: any) => {
                             
                             {/* TOOLTIP REPORT INFO */}
                             {rec && rec.status !== 'none' && (
-                                <div className={`tooltip-content absolute opacity-0 invisible transition-all duration-300 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 text-white text-[10px] p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-48 z-[9999] pointer-events-none ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
+                                <div className={`tooltip-content absolute opacity-0 invisible transition-opacity duration-300 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 text-white text-[10px] p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-48 z-[9999] pointer-events-none ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
                                     <p className="font-black text-orange-400 border-b border-slate-700 pb-1.5 mb-2 truncate">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-slate-400 font-medium">Target:</span>
@@ -2385,7 +2385,7 @@ const handleViewCommActs = (comm: any) => {
                                {linkedComms && (
                                    <div className="relative group/link delay-500-trigger cursor-help flex items-center shrink-0">
                                        <LinkIcon size={12} className="text-purple-500/70 hover:text-purple-600 transition-colors" />
-                                       <div className={`absolute opacity-0 invisible tooltip-content-delay transition-all duration-300 left-1/2 -translate-x-1/2 w-48 bg-purple-900 text-white text-[9px] font-bold text-center p-2.5 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
+                                       <div className={`absolute opacity-0 invisible tooltip-content-delay transition-opacity duration-300 left-1/2 -translate-x-1/2 w-48 bg-purple-900 text-white text-[9px] font-bold text-center p-2.5 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
                                            🔗 Aktivitas Terhubung (Linked). Laporan pada baris ini saling tersinkron otomatis.<br/><br/>
                                            <span className="text-purple-300">Terhubung dengan grup: {linkedComms.join(', ')}</span>
                                            <div className={`absolute left-1/2 -translate-x-1/2 w-2 h-2 bg-purple-900 rotate-45 ${isTopRow ? '-top-1 border-l border-t border-purple-900' : '-bottom-1 border-b border-r border-purple-900'}`}></div>
@@ -2396,7 +2396,7 @@ const handleViewCommActs = (comm: any) => {
                                {!isSafe && (
                                    <div className="relative group/alert delay-500-trigger cursor-help">
                                        <AlertTriangle size={14} className="text-red-500 animate-pulse" />
-                                       <div className={`absolute opacity-0 invisible tooltip-content-delay transition-all duration-300 left-1/2 -translate-x-1/2 w-48 bg-red-900 text-white text-[9px] font-bold text-center p-2 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
+                                       <div className={`absolute opacity-0 invisible tooltip-content-delay transition-opacity duration-300 left-1/2 -translate-x-1/2 w-48 bg-red-900 text-white text-[9px] font-bold text-center p-2 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
                                            Pelaksanaan di bawah 50% dari target hari yang telah berlalu!
                                            <div className={`absolute left-1/2 -translate-x-1/2 w-2 h-2 bg-red-900 rotate-45 ${isTopRow ? '-top-1 border-l border-t border-red-900' : '-bottom-1 border-b border-r border-red-900'}`}></div>
                                        </div>
@@ -2414,7 +2414,7 @@ const handleViewCommActs = (comm: any) => {
                                     {act.communities.length > 1 ? `${act.communities[0]} +${act.communities.length - 1} Grup` : act.communities[0]}
                                  </span>
                                  {act.communities.length > 1 && (
-                                     <div className={`absolute opacity-0 invisible tooltip-content-delay transition-all duration-300 left-1/2 -translate-x-1/2 w-48 bg-slate-800 text-white text-[9px] font-bold text-center p-2 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
+                                     <div className={`absolute opacity-0 invisible tooltip-content-delay transition-opacity duration-300 left-1/2 -translate-x-1/2 w-48 bg-slate-800 text-white text-[9px] font-bold text-center p-2 rounded-lg shadow-xl z-[9999] tracking-wide leading-relaxed ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
                                          Terhubung dengan:<br/>
                                          <span className="text-purple-300">{act.communities.join(', ')}</span>
                                          <div className={`absolute left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45 ${isTopRow ? '-top-1 border-l border-t border-slate-800' : '-bottom-1 border-b border-r border-slate-800'}`}></div>
@@ -2449,7 +2449,7 @@ const handleViewCommActs = (comm: any) => {
                             
                             {/* TOOLTIP REPORT INFO */}
                             {rec && rec.status !== 'none' && (
-                                <div className={`tooltip-content absolute opacity-0 invisible transition-all duration-300 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 text-white text-[10px] p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-48 z-[9999] pointer-events-none ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
+                                <div className={`tooltip-content absolute opacity-0 invisible transition-opacity duration-300 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 text-white text-[10px] p-3 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] w-48 z-[9999] pointer-events-none ${isTopRow ? 'top-full mt-2' : 'bottom-full mb-2'}`}>
                                     <p className="font-black text-orange-400 border-b border-slate-700 pb-1.5 mb-2 truncate">{act.name} ({d.getDate()}/{d.getMonth()+1})</p>
                                     <div className="flex justify-between items-center mb-1">
                                         <span className="text-slate-400 font-medium">Target:</span>
