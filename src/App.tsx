@@ -149,6 +149,9 @@ const [newNotif, setNewNotif] = useState({ title: '', body: '', targetId: 'all' 
 // [UPDATED] Optimasi Sprint 3: State untuk Pop-up Detail & Instant Read
 const [selectedNotif, setSelectedNotif] = useState<any>(null);
 const [localLastRead, setLocalLastRead] = useState<number>(0);
+const [dbLastReadNotif, setDbLastReadNotif] = useState<number>(0);
+const [notifTab, setNotifTab] = useState<'create' | 'history'>('create');
+const [editNotif, setEditNotif] = useState<any>(null);
 
   const [copiedPattern, setCopiedPattern] = useState<{status: string, timestamp: number, dateStr: string}[] | null>(null);
   
@@ -219,7 +222,9 @@ const [localLastRead, setLocalLastRead] = useState<number>(0);
           setJournals(d.journals || []); 
           setJoinedCommunityIds(d.joinedCommunities || []);
           setMyCommunityLimit(d.communityLimit || 1); 
-          
+          setDbLastReadNotif(d.lastReadNotifTime || 0); // [FIX] Penarik status lonceng
+
+
           let effectiveRole = d.role || 'demo';
           if (user.email === 'coachardi1453@gmail.com') effectiveRole = 'superadmin';
           setUserRole(effectiveRole);
@@ -303,22 +308,22 @@ useEffect(() => {
  }, [notifications, user, joinedCommunityIds]);
 
  const unreadNotifCount = useMemo(() => {
-   const lastRead = Math.max(user?.lastReadNotifTime || 0, localLastRead);
+   const lastRead = Math.max(dbLastReadNotif, localLastRead);
    return myNotifs.filter(n => n.timestamp > lastRead).length;
-}, [myNotifs, user, localLastRead]);
+}, [myNotifs, dbLastReadNotif, localLastRead]);
 
 const handleOpenNotifs = () => {
    setShowNotifModal(true);
-   setSelectedNotif(null); // Reset detail view setiap buka lonceng
+   setSelectedNotif(null);
    if (unreadNotifCount > 0) {
        const now = Date.now();
-       setLocalLastRead(now); // Hapus titik merah secara instan di UI
+       setLocalLastRead(now); 
        setDoc(doc(db, 'users', user.uid), { lastReadNotifTime: now }, { merge: true });
    }
 };
 
  const handleSendNotif = async () => {
-    if (!newNotif.title.trim() || !newNotif.body.trim()) return showToast("Judul dan isi notifikasi wajib diisi!");
+    if (!newNotif.title.trim() || !newNotif.body.trim()) return showToast("Judul dan isi wajib diisi!");
     try {
         await addDoc(collection(db, 'notifications'), {
             title: newNotif.title, body: newNotif.body, targetId: newNotif.targetId,
@@ -326,7 +331,22 @@ const handleOpenNotifs = () => {
         });
         showToast("Notifikasi berhasil dikirim!");
         setNewNotif({ title: '', body: '', targetId: 'all' });
+        setNotifTab('history'); // Otomatis pindah ke tab riwayat
     } catch(e) { showToast("Gagal mengirim notifikasi."); }
+ };
+
+ const handleDeleteNotif = async (id: string) => {
+    if (window.confirm('Tarik & hapus notifikasi ini secara permanen dari seluruh perangkat anggota?')) {
+        await deleteDoc(doc(db, 'notifications', id));
+        showToast('Notifikasi berhasil ditarik!');
+    }
+ };
+
+ const handleUpdateNotif = async () => {
+    if (!editNotif.title.trim() || !editNotif.body.trim()) return showToast("Data tidak valid!");
+    await updateDoc(doc(db, 'notifications', editNotif.id), { title: editNotif.title, body: editNotif.body });
+    setEditNotif(null);
+    showToast('Notifikasi diperbarui ke seluruh anggota!');
  };
 
   // Daftar Semua User untuk Gamifikasi & Share Jurnal
@@ -1518,61 +1538,115 @@ const handleViewCommActs = (comm: any) => {
       <div className="min-h-full p-2 md:p-6 relative">
         {/* ================= MODALS ================= */}
 
-        {/* [NEW SPRINT 2] MODAL DASBOR ANALISA MEMBER (READ-ONLY) */}
-        {memberAnalyticsModal.show && memberAnalyticsModal.user && (
+        {/* [NEW SIKLUS 8] MODAL DASBOR ANALISA MEMBER KOMPREHENSIF (READ-ONLY) */}
+        {memberAnalyticsModal.show && memberAnalyticsModal.user && (() => {
+           const u = memberAnalyticsModal.user;
+           const doneTotal = Object.values(u.records || {}).filter((r:any)=>r.status==='done').length;
+           const missTotal = Object.values(u.records || {}).filter((r:any)=>r.status==='missed').length;
+           
+           const mtmUser = [];
+           for(let i=5; i>=0; i--) {
+               const d = new Date(); d.setMonth(d.getMonth()-i);
+               const mKey = `${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+               mtmUser.push({ bln: MONTH_NAMES[d.getMonth()].substring(0,3), skor: u[`score_${mKey}_gabungan`] || 0 });
+           }
+
+           return (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
-              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar text-left">
+              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-5xl shadow-2xl relative max-h-[95vh] overflow-y-auto custom-scrollbar text-left flex flex-col">
                  <button onClick={() => setMemberAnalyticsModal({show: false, user: null})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-colors"><X size={20}/></button>
                  
-                 <div className="flex items-center gap-4 mb-8 border-b border-slate-100 pb-6">
-                    <div className="w-16 h-16 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-center shadow-inner">
-                       <Activity size={32} className="text-blue-600"/>
+                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 border-b border-slate-100 pb-6">
+                    <div className="flex items-center gap-4">
+                        <div className="w-16 h-16 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-center shadow-inner">
+                           <Activity size={32} className="text-blue-600"/>
+                        </div>
+                        <div>
+                           <h2 className="text-2xl font-black text-slate-800">{u.displayName || 'Anonim'}</h2>
+                           <p className="text-sm font-bold text-slate-500 mt-1">Laporan Bedah Performa (Read-Only Data Pipeline)</p>
+                        </div>
                     </div>
-                    <div>
-                       <h2 className="text-2xl font-black text-slate-800">Dasbor Analisa Member</h2>
-                       <p className="text-sm font-bold text-slate-500 mt-1">Laporan Read-Only: <span className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">{memberAnalyticsModal.user.displayName || 'Anonim'}</span></p>
-                    </div>
-                 </div>
-
-                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                    <div className="bg-orange-50 p-4 rounded-2xl border border-orange-200 shadow-sm relative overflow-hidden text-left">
-                       <p className="text-[10px] text-orange-700 font-black uppercase tracking-widest mb-1 flex items-center gap-1.5"><Flame size={14}/> Daily Streak</p>
-                       <p className="text-3xl font-black text-slate-800 mt-2">{memberAnalyticsModal.user.daily_streak || 0} <span className="text-xs text-slate-500 font-bold">Hari</span></p>
-                    </div>
-                    <div className="bg-green-50 p-4 rounded-2xl border border-green-200 shadow-sm relative overflow-hidden text-left">
-                       <p className="text-[10px] text-green-700 font-black uppercase tracking-widest mb-1 flex items-center gap-1.5"><Heart size={14}/> Health Pts</p>
-                       <p className="text-3xl font-black text-slate-800 mt-2">{memberAnalyticsModal.user.hp_score ?? 100} <span className="text-xs text-slate-500 font-bold">HP</span></p>
-                    </div>
-                    <div className="bg-blue-50 p-4 rounded-2xl border border-blue-200 shadow-sm relative overflow-hidden text-left col-span-2">
-                       <p className="text-[10px] text-blue-700 font-black uppercase tracking-widest mb-1 flex items-center gap-1.5"><BarChart2 size={14}/> Total Aksi (All Time)</p>
-                       <div className="flex gap-4 mt-2">
-                           <div className="flex-1 bg-white p-2.5 rounded-xl border border-blue-100 shadow-sm"><span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest block mb-0.5">Selesai</span><span className="text-xl font-black text-green-600">{Object.values(memberAnalyticsModal.user.records || {}).filter((r:any)=>r.status==='done').length}</span></div>
-                           <div className="flex-1 bg-white p-2.5 rounded-xl border border-blue-100 shadow-sm"><span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest block mb-0.5">Terlewat</span><span className="text-xl font-black text-red-500">{Object.values(memberAnalyticsModal.user.records || {}).filter((r:any)=>r.status==='missed').length}</span></div>
-                       </div>
+                    <div className="flex flex-col gap-2 w-full md:w-auto">
+                        <span className="text-xs bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-600 flex items-center gap-2"><LogOut size={14}/> Login Terakhir: {formatLastLogin(u.lastLogin)}</span>
+                        <span className="text-xs bg-green-50 px-3 py-2 rounded-xl border border-green-200 font-bold text-green-700 flex items-center gap-2"><Save size={14}/> Save Laporan Terakhir: {formatLastLogin(u.lastActivity)}</span>
                     </div>
                  </div>
 
-                 <h3 className="text-sm font-black text-slate-800 mb-3 flex items-center gap-2"><Target size={16} className="text-purple-500"/> Komitmen Aktif Member</h3>
-                 <div className="max-h-60 overflow-y-auto space-y-2 pr-2 custom-scrollbar bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                    {memberAnalyticsModal.user.activities?.map((a: any) => {
-                       const gAct = globalActivities.find((g: any) => g.docId === a.id);
-                       const actName = gAct ? gAct.name : a.name;
-                       return (
-                          <div key={a.id} className="bg-white p-3 rounded-xl border border-slate-200 flex justify-between items-center shadow-sm hover:border-purple-300 transition-colors">
-                             <div className="flex flex-col items-start text-left">
-                                <span className="font-bold text-sm text-slate-700">{actName}</span>
-                                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{a.frequency || 'daily'}</span>
-                             </div>
-                             <span className="text-xs font-black text-purple-600 bg-purple-50 border border-purple-200 px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-1.5"><Clock size={12}/> {a.time}</span>
-                          </div>
-                       )
-                    })}
-                    {(!memberAnalyticsModal.user.activities || memberAnalyticsModal.user.activities.length === 0) && <p className="text-center text-xs text-slate-400 italic py-4">Member ini belum menambahkan komitmen apapun.</p>}
+                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    {/* KOLOM KIRI: KUANTITAS & PILAR DISIPLIN */}
+                    <div className="space-y-6">
+                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
+                           <p className="text-sm font-black text-slate-800 mb-4 flex items-center gap-2"><BarChart2 size={16} className="text-orange-500"/> Bedah Kuantitas Aksi Fisik (All Time)</p>
+                           <div className="flex gap-4">
+                               <div className="flex-1 bg-white p-5 rounded-xl border border-blue-100 shadow-sm relative overflow-hidden">
+                                   <div className="absolute top-0 left-0 w-1.5 h-full bg-green-500"></div>
+                                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest block mb-1">Total Selesai</span>
+                                   <span className="text-4xl font-black text-green-600">{doneTotal}</span>
+                               </div>
+                               <div className="flex-1 bg-white p-5 rounded-xl border border-blue-100 shadow-sm relative overflow-hidden">
+                                   <div className="absolute top-0 left-0 w-1.5 h-full bg-red-500"></div>
+                                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest block mb-1">Total Terlewat</span>
+                                   <span className="text-4xl font-black text-red-500">{missTotal}</span>
+                               </div>
+                           </div>
+                        </div>
+                        
+                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
+                           <p className="text-sm font-black text-slate-800 mb-4 flex items-center gap-2"><Shield size={16} className="text-blue-500"/> Cuplikan Kartu Disiplin</p>
+                           <div className="grid grid-cols-2 gap-4">
+                               <div className="bg-white p-5 rounded-xl border border-orange-200 shadow-sm">
+                                  <p className="text-[10px] text-orange-700 font-black uppercase tracking-widest mb-2 flex items-center gap-1.5"><Flame size={14}/> Daily Streak</p>
+                                  <p className="text-3xl font-black text-slate-800">{u.daily_streak || 0} <span className="text-sm text-slate-500 font-bold">Hari</span></p>
+                               </div>
+                               <div className="bg-white p-5 rounded-xl border border-green-200 shadow-sm">
+                                  <p className="text-[10px] text-green-700 font-black uppercase tracking-widest mb-2 flex items-center gap-1.5"><Heart size={14}/> Health Pts</p>
+                                  <p className="text-3xl font-black text-slate-800">{u.hp_score ?? 100} <span className="text-sm text-slate-500 font-bold">HP</span></p>
+                               </div>
+                           </div>
+                        </div>
+                    </div>
+
+                    {/* KOLOM KANAN: M-TO-M CHART & DAFTAR AKTIVITAS */}
+                    <div className="space-y-6 flex flex-col">
+                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm flex-1">
+                           <p className="text-sm font-black text-slate-800 mb-4 flex items-center gap-2"><Calendar size={16} className="text-purple-500"/> Trend Ketercapaian Jangka Panjang (6 Bulan)</p>
+                           <div className="h-40 w-full bg-white rounded-xl border border-slate-200 p-2 shadow-inner">
+                               <ResponsiveContainer width="100%" height="100%">
+                                   <BarChart data={mtmUser} margin={{top:10,right:10,left:-20,bottom:0}}>
+                                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                      <XAxis dataKey="bln" fontSize={10} stroke="#64748b" tickLine={false} axisLine={false} dy={5} fontWeight="bold"/>
+                                      <YAxis fontSize={10} stroke="#64748b" domain={[0,100]} tickFormatter={(v:any)=>`${v}%`} tickLine={false} axisLine={false} fontWeight="bold"/>
+                                      <RechartsTooltip cursor={{fill: '#f1f5f9'}} contentStyle={{ borderRadius:'8px', border:'none', boxShadow:'0 4px 15px rgba(0,0,0,0.1)' }} formatter={(v:any)=>[`${v}%`, 'Skor']} />
+                                      <Bar dataKey="skor" fill="#8b5cf6" radius={[4,4,0,0]} />
+                                   </BarChart>
+                               </ResponsiveContainer>
+                           </div>
+                        </div>
+
+                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm flex-1 max-h-64 flex flex-col">
+                           <p className="text-sm font-black text-slate-800 mb-4 flex items-center gap-2"><Target size={16} className="text-blue-500"/> Master Komitmen Aktif</p>
+                           <div className="overflow-y-auto pr-2 custom-scrollbar space-y-2">
+                              {u.activities?.map((a: any) => {
+                                 const gAct = globalActivities.find((g: any) => g.docId === a.id);
+                                 return (
+                                    <div key={a.id} className="bg-white p-3 rounded-xl border border-slate-200 flex justify-between items-center shadow-sm hover:border-blue-300 transition-colors">
+                                       <div className="flex flex-col items-start min-w-0">
+                                          <span className="font-bold text-sm text-slate-700 truncate w-full">{gAct ? gAct.name : a.name}</span>
+                                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{getFreqLabel(a.frequency)}</span>
+                                       </div>
+                                       <span className="text-xs font-black text-blue-600 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg shrink-0 ml-2 shadow-sm"><Clock size={12} className="inline mr-1"/>{a.time}</span>
+                                    </div>
+                                 )
+                              })}
+                              {(!u.activities || u.activities.length === 0) && <p className="text-center text-xs text-slate-400 italic border-2 border-dashed border-slate-200 rounded-xl py-6 bg-white">Belum ada komitmen ibadah.</p>}
+                           </div>
+                        </div>
+                    </div>
                  </div>
-                 
               </div>
            </div>
-        )}
+           );
+        })()}
 
 {/* [NEW SPRINT 3] MODAL NOTIFIKASI (LONCENG) DENGAN POP-UP DETAIL */}
 {showNotifModal && (
@@ -1599,15 +1673,18 @@ const handleViewCommActs = (comm: any) => {
                          <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><Bell className="text-orange-500"/> Notifikasi Anda</h2>
                          <p className="text-sm font-semibold text-slate-500 mb-4 border-b border-slate-100 pb-4">Pengumuman & info dari Admin</p>
                          <div className="overflow-y-auto space-y-3 pr-2 custom-scrollbar flex-1">
-                             {myNotifs.length === 0 ? <p className="text-center text-sm text-slate-400 py-8 italic border-2 border-dashed border-slate-200 rounded-2xl">Belum ada notifikasi untuk Anda.</p> : myNotifs.map((n, i) => (
-                                 <div key={n.id || i} onClick={() => setSelectedNotif(n)} className="bg-white p-4 rounded-xl border border-slate-200 flex flex-col gap-1.5 shadow-sm group hover:border-orange-400 hover:bg-orange-50/30 transition-all cursor-pointer">
+                             {myNotifs.length === 0 ? <p className="text-center text-sm text-slate-400 py-8 italic border-2 border-dashed border-slate-200 rounded-2xl">Belum ada notifikasi untuk Anda.</p> : myNotifs.map((n, i) => {
+                                 const isNew = n.timestamp > Math.max(dbLastReadNotif, localLastRead);
+                                 return (
+                                 <div key={n.id || i} onClick={() => setSelectedNotif(n)} className={`relative p-4 rounded-xl border flex flex-col gap-1.5 shadow-sm group transition-all cursor-pointer ${isNew ? 'bg-orange-50 border-orange-200 hover:border-orange-400' : 'bg-slate-50/50 border-slate-200 opacity-75 hover:opacity-100 hover:border-slate-300'}`}>
+                                    {isNew && <span className="absolute -top-2 -left-2 bg-red-500 text-white text-[9px] font-black px-2 py-0.5 rounded-full shadow-md animate-pulse z-10">BARU</span>}
                                     <div className="flex justify-between items-start gap-2">
-                                        <span className="font-bold text-sm text-slate-800 leading-snug group-hover:text-orange-700 transition-colors line-clamp-1">{n.title}</span>
-                                        <span className="text-[9px] font-black text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap">{new Date(n.timestamp).toLocaleDateString('id-ID', {day:'numeric', month:'short'})}</span>
+                                        <span className={`font-bold text-sm leading-snug transition-colors line-clamp-1 ${isNew ? 'text-slate-800 group-hover:text-orange-700' : 'text-slate-500 group-hover:text-slate-700'}`}>{n.title}</span>
+                                        <span className="text-[9px] font-black text-slate-400 bg-white px-1.5 py-0.5 rounded border border-slate-100 whitespace-nowrap">{new Date(n.timestamp).toLocaleDateString('id-ID', {day:'numeric', month:'short'})}</span>
                                     </div>
                                     <p className="text-xs text-slate-500 leading-relaxed font-medium line-clamp-2">{n.body}</p>
                                  </div>
-                             ))}
+                             )})}
                          </div>
                      </div>
                  )}
@@ -2298,32 +2375,74 @@ const handleViewCommActs = (comm: any) => {
                         </div>
                     </div>
                  ) : adminTab === 'notifs' ? (
-                    <div className="bg-orange-50 p-6 md:p-8 rounded-3xl border border-orange-200 max-w-2xl mx-auto shadow-sm">
-                        <h3 className="font-black text-orange-800 mb-2 flex items-center gap-2 text-xl"><Send size={20}/> Broadcast Pengumuman</h3>
-                        <p className="text-sm text-orange-600 mb-6 border-b border-orange-200 pb-4">Kirimkan notifikasi (Push Alert In-App) langsung ke ikon Lonceng anggota.</p>
-                        
-                        <div className="space-y-4">
+                    <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200 max-w-4xl mx-auto shadow-sm">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b border-slate-100 pb-4 gap-4">
                             <div>
-                                <label className="block text-xs font-black uppercase tracking-widest text-orange-800 mb-2">Target Penerima</label>
-                                <select value={newNotif.targetId} onChange={e => setNewNotif({...newNotif, targetId: e.target.value})} className="w-full bg-white border-2 border-orange-200 rounded-xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:border-orange-500 cursor-pointer shadow-sm">
-                                    {isSuperAdmin && <option value="all">🌐 Seluruh Pengguna Aplikasi (Global)</option>}
-                                    <optgroup label="Grup Komunitas Anda">
-                                        {allCommunities.filter(c => isSuperAdmin || c.ownerId === user.uid).map(c => (
-                                            <option key={c.id} value={c.id}>👥 Grup: {c.name}</option>
-                                        ))}
-                                    </optgroup>
-                                </select>
+                                <h3 className="font-black text-orange-600 flex items-center gap-2 text-xl"><Megaphone size={20}/> Pusat Komando Notifikasi</h3>
+                                <p className="text-sm text-slate-500 mt-1">Kelola dan tarik pesan broadcast (Real-Time).</p>
                             </div>
-                            <div>
-                                <label className="block text-xs font-black uppercase tracking-widest text-orange-800 mb-2">Judul Notifikasi</label>
-                                <input type="text" placeholder="Cth: Tantangan Baru Minggu Ini!" value={newNotif.title} onChange={e => setNewNotif({...newNotif, title: e.target.value})} className="w-full bg-white border-2 border-orange-200 rounded-xl p-3.5 text-sm font-bold text-slate-800 outline-none focus:border-orange-500 shadow-sm" />
+                            <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+                                <button onClick={()=>setNotifTab('create')} className={`flex-1 sm:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${notifTab === 'create' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Tulis Baru</button>
+                                <button onClick={()=>setNotifTab('history')} className={`flex-1 sm:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${notifTab === 'history' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Riwayat Terkirim</button>
                             </div>
-                            <div>
-                                <label className="block text-xs font-black uppercase tracking-widest text-orange-800 mb-2">Pesan Lengkap</label>
-                                <textarea placeholder="Tuliskan detail pengumuman untuk menyemangati tim..." value={newNotif.body} onChange={e => setNewNotif({...newNotif, body: e.target.value})} className="w-full bg-white border-2 border-orange-200 rounded-xl p-3.5 text-sm font-medium text-slate-700 outline-none focus:border-orange-500 min-h-[120px] resize-none shadow-sm leading-relaxed" />
-                            </div>
-                            <button onClick={handleSendNotif} className="w-full bg-orange-600 text-white font-black py-4 mt-2 rounded-xl shadow-lg hover:bg-orange-700 hover:-translate-y-1 transition-all flex items-center justify-center gap-2"><Send size={18}/> Kirim Notifikasi Sekarang</button>
                         </div>
+                        
+                        {notifTab === 'create' ? (
+                            <div className="space-y-4 max-w-2xl mx-auto">
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-slate-600 mb-2">Target Penerima</label>
+                                    <select value={newNotif.targetId} onChange={e => setNewNotif({...newNotif, targetId: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:border-orange-500 cursor-pointer shadow-sm">
+                                        {isSuperAdmin && <option value="all">🌐 Seluruh Pengguna (Global)</option>}
+                                        <optgroup label={isSuperAdmin ? "Semua Grup" : "Grup Milik Anda"}>
+                                            {allCommunities.filter(c => isSuperAdmin || c.ownerId === user.uid).map(c => (
+                                                <option key={c.id} value={c.id}>👥 Grup: {c.name}</option>
+                                            ))}
+                                        </optgroup>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-slate-600 mb-2">Judul Notifikasi</label>
+                                    <input type="text" placeholder="Cth: Tantangan Baru Minggu Ini!" value={newNotif.title} onChange={e => setNewNotif({...newNotif, title: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-bold text-slate-800 outline-none focus:border-orange-500 shadow-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-slate-600 mb-2">Pesan Lengkap</label>
+                                    <textarea placeholder="Tuliskan detail pengumuman..." value={newNotif.body} onChange={e => setNewNotif({...newNotif, body: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-medium text-slate-700 outline-none focus:border-orange-500 min-h-[120px] resize-none shadow-sm leading-relaxed" />
+                                </div>
+                                <button onClick={handleSendNotif} className="w-full bg-orange-600 text-white font-black py-4 mt-2 rounded-xl shadow-lg hover:bg-orange-700 transition-all flex items-center justify-center gap-2"><Send size={18}/> Kirim Notifikasi Sekarang</button>
+                            </div>
+                        ) : (
+                            <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                                {notifications.filter(n => isSuperAdmin || n.senderName === user.displayName).map(n => (
+                                    <div key={n.id} className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 group hover:border-blue-300 transition-colors">
+                                        {editNotif?.id === n.id ? (
+                                            <div className="flex-1 w-full space-y-2">
+                                                <input type="text" value={editNotif.title} onChange={e=>setEditNotif({...editNotif, title: e.target.value})} className="w-full p-2 border border-blue-400 rounded-lg text-sm font-bold bg-white outline-none" />
+                                                <textarea value={editNotif.body} onChange={e=>setEditNotif({...editNotif, body: e.target.value})} className="w-full p-2 border border-blue-400 rounded-lg text-xs bg-white outline-none resize-none" rows={3}/>
+                                            </div>
+                                        ) : (
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span className="font-bold text-slate-800 truncate">{n.title}</span>
+                                                    <span className="text-[9px] bg-white border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-black uppercase shadow-sm">{n.targetId === 'all' ? 'GLOBAL' : 'GRUP'}</span>
+                                                </div>
+                                                <p className="text-xs text-slate-500 mt-1 line-clamp-2">{n.body}</p>
+                                                <span className="text-[9px] text-slate-400 font-bold mt-2 block">{new Date(n.timestamp).toLocaleString('id-ID')}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex gap-2 w-full md:w-auto shrink-0">
+                                            {editNotif?.id === n.id ? (
+                                                <><button onClick={handleUpdateNotif} className="flex-1 md:flex-none bg-blue-600 text-white px-4 py-2.5 rounded-lg text-xs font-bold">Simpan</button>
+                                                <button onClick={()=>setEditNotif(null)} className="flex-1 md:flex-none bg-slate-200 text-slate-600 px-4 py-2.5 rounded-lg text-xs font-bold">Batal</button></>
+                                            ) : (
+                                                <><button onClick={()=>setEditNotif(n)} className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-600 hover:text-blue-600 hover:border-blue-300 px-3 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-1 shadow-sm"><Edit3 size={14}/> Edit</button>
+                                                <button onClick={()=>handleDeleteNotif(n.id)} className="flex-1 md:flex-none bg-white border border-slate-200 text-red-500 hover:bg-red-50 hover:border-red-200 px-3 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-1 shadow-sm"><Trash2 size={14}/> Tarik/Hapus</button></>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                                {notifications.filter(n => isSuperAdmin || n.senderName === user.displayName).length === 0 && <p className="text-center text-slate-400 text-sm py-10 italic">Belum ada riwayat broadcast.</p>}
+                            </div>
+                        )}
                     </div>
                  ) : null}
               </div>
