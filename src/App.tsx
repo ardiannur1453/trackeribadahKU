@@ -176,13 +176,95 @@ const [editNotif, setEditNotif] = useState<any>(null);
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [adminSearch, setAdminSearch] = useState('');
   const [adminSort, setAdminSort] = useState<'newest' | 'oldest' | 'az' | 'za' | 'role'>('newest');
+  // [NEW SIKLUS 9] State & Helper untuk Top Karakter Disiplin Mingguan/Bulanan
+  const [adminCharPeriod, setAdminCharPeriod] = useState<'mingguan' | 'bulanan' | 'alltime'>('mingguan');
   
+  const hitungDeltaKarakter = (records: any, period: string) => {
+      if (!records) return { acc: 0, dmg: 0, net: 0, perfectDays: 0 };
+      const now = new Date();
+      const currMonth = now.getMonth();
+      const currYear = now.getFullYear();
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1));
+      startOfWeek.setHours(0,0,0,0);
+
+      let done = 0, missed = 0, perfectDays = 0;
+      let dailyStatus: Record<string, {d:number, m:number}> = {};
+
+      Object.entries(records).forEach(([key, val]: any) => {
+          const dateStr = key.substring(0, 10);
+          const recDate = new Date(dateStr);
+          let masukHitungan = false;
+          
+          if (period === 'bulanan' && recDate.getMonth() === currMonth && recDate.getFullYear() === currYear) masukHitungan = true;
+          if (period === 'mingguan' && recDate >= startOfWeek) masukHitungan = true;
+          if (period === 'alltime') masukHitungan = true;
+
+          if (masukHitungan) {
+              if (val.status === 'done') { done++; }
+              if (val.status === 'missed') { missed++; }
+              
+              if (!dailyStatus[dateStr]) dailyStatus[dateStr] = {d:0, m:0};
+              if (val.status === 'done') dailyStatus[dateStr].d++;
+              if (val.status === 'missed') dailyStatus[dateStr].m++;
+          }
+      });
+
+      // Hitung "Perfect Days" (Hari tanpa absen) untuk pengganti Streak
+      Object.values(dailyStatus).forEach(day => {
+          if (day.d > 0 && day.m === 0) perfectDays++;
+      });
+
+      const acc = (done + missed) === 0 ? 0 : Math.round((done / (done + missed)) * 100);
+      const dmg = missed * 2; 
+      return { acc, dmg, perfectDays };
+  };
   const [editCommId, setEditCommId] = useState<string|null>(null);
   const [newCommName, setNewCommName] = useState('');
   const [selectedActs, setSelectedActs] = useState<{id: string, time: string}[]>([]);
   
   const [editGlobalActId, setEditGlobalActId] = useState<string|null>(null);
   const [newGlobalAct, setNewGlobalAct] = useState({ name: '', time: '00:00', frequency: 'daily', freqConfig: '' });
+
+// [NEW SIKLUS 9] State untuk Kontrol Tab Leaderboard
+const [lbType, setLbType] = useState('aktivitas'); // 'aktivitas' | 'karakter'
+const [lbPeriod, setLbPeriod] = useState('mingguan'); // 'mingguan' | 'bulanan' | 'alltime'
+
+// [NEW SIKLUS 9] Helper: Kalkulator Skor Karakter Tanpa Sentuh Database
+const hitungSkorKarakter = (records: any, period: string) => {
+    if (!records) return { acc: 0, dmg: 0, net: 0 };
+    
+    const now = new Date();
+    const currMonth = now.getMonth();
+    const currYear = now.getFullYear();
+    
+    // Ambil hari Senin minggu ini
+    const day = now.getDay();
+    const diff = now.getDate() - day + (day === 0 ? -6 : 1); 
+    const startOfWeek = new Date(now.setDate(diff));
+    startOfWeek.setHours(0,0,0,0);
+
+    let done = 0, missed = 0;
+
+    Object.entries(records).forEach(([key, val]: any) => {
+        const dateStr = key.substring(0, 10); // Ambil 'YYYY-MM-DD'
+        const recDate = new Date(dateStr);
+        
+        let masukHitungan = false;
+        if (period === 'bulanan' && recDate.getMonth() === currMonth && recDate.getFullYear() === currYear) masukHitungan = true;
+        if (period === 'mingguan' && recDate >= startOfWeek) masukHitungan = true;
+        if (period === 'alltime') masukHitungan = true;
+
+        if (masukHitungan) {
+            if (val.status === 'done') done++;
+            if (val.status === 'missed') missed++;
+        }
+    });
+
+    const acc = (done + missed) === 0 ? 0 : Math.round((done / (done + missed)) * 100);
+    const dmg = missed * 2; // Asumsi setiap terlewat poin HP minus 2
+    return { acc, dmg, net: acc - dmg };
+};
 
   // --- REFERENCES ---
   const chartRef = useRef<HTMLDivElement>(null);
@@ -1026,9 +1108,12 @@ const handleOpenNotifs = () => {
        joinedCommunities: joinedCommunityIds,
        displayName: user.displayName, 
        email: user.email, 
+       
        lastActivity: new Date().getTime(),
        hp_score: stats.disciplineHealth, 
        daily_streak: stats.currentStreak, 
+       acc_score: stats.noGhostingRate, // [NEW] Pilar 3
+       time_score: stats.onTimeRate,    // [NEW] Pilar 4
        [`score_${mKey}_gabungan`]: stats.scoreGabungan
     };
     
@@ -1538,107 +1623,128 @@ const handleViewCommActs = (comm: any) => {
       <div className="min-h-full p-2 md:p-6 relative">
         {/* ================= MODALS ================= */}
 
-        {/* [NEW SIKLUS 8] MODAL DASBOR ANALISA MEMBER KOMPREHENSIF (READ-ONLY) */}
+        {/* [NEW SIKLUS 9] MODAL DASBOR ANALISA MEMBER KOMPREHENSIF (READ-ONLY) */}
         {memberAnalyticsModal.show && memberAnalyticsModal.user && (() => {
            const u = memberAnalyticsModal.user;
-           const doneTotal = Object.values(u.records || {}).filter((r:any)=>r.status==='done').length;
-           const missTotal = Object.values(u.records || {}).filter((r:any)=>r.status==='missed').length;
            
+           // Kalkulasi Kuantitas Grup vs Pribadi (Dinamic Engine)
+           let p_done=0, p_miss=0, g_done=0, g_miss=0;
+           const actStats: any = {}; 
+           const userCommActs = new Set();
+           (u.joinedCommunities || []).forEach((cid: string) => {
+               const c = allCommunities.find(x => x.id === cid);
+               c?.activities?.forEach((a: any) => userCommActs.add(a.id));
+           });
+
+           const now = new Date();
+           const wStats = [ {exp:0, done:0}, {exp:0, done:0}, {exp:0, done:0}, {exp:0, done:0}, {exp:0, done:0} ];
+
+           Object.entries(u.records || {}).forEach(([key, rec]: any) => {
+               const actIdStr = key.substring(11);
+               const isGrp = userCommActs.has(actIdStr);
+               
+               // Untuk Bedah Kuantitas & Top Aktivitas
+               if (!actStats[actIdStr]) {
+                   const gAct = globalActivities.find(g => g.docId === actIdStr);
+                   const pAct = u.activities?.find((a:any) => a.id === actIdStr);
+                   actStats[actIdStr] = { name: gAct?.name || pAct?.name || 'Unknown', isGroup: isGrp, done: 0, miss: 0 };
+               }
+               if (rec.status === 'done') { actStats[actIdStr].done++; if(isGrp) g_done++; else p_done++; }
+               if (rec.status === 'missed') { actStats[actIdStr].miss++; if(isGrp) g_miss++; else p_miss++; }
+
+               // Untuk Grafik Week-to-Week Bulan Berjalan
+               if(key.startsWith(`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`)) {
+                   const day = parseInt(key.split('-')[2]);
+                   const wIdx = Math.floor((day-1)/7);
+                   if(wIdx < 5 && (rec.status === 'done' || rec.status === 'missed')) {
+                       wStats[wIdx].exp++;
+                       if(rec.status === 'done') wStats[wIdx].done++;
+                   }
+               }
+           });
+
+           const topGroupAct = Object.values(actStats).filter((a:any) => a.isGroup).sort((a:any,b:any) => b.done - a.done)[0] as any;
+           const botGroupAct = Object.values(actStats).filter((a:any) => a.isGroup).sort((a:any,b:any) => b.miss - a.miss)[0] as any;
+           
+           const wtwUser = wStats.filter(w=>w.exp>0).map((w,i) => ({ name: `W${i+1}`, skor: Math.round((w.done/w.exp)*100) }));
            const mtmUser = [];
-           for(let i=5; i>=0; i--) {
+           for(let i=3; i>=0; i--) {
                const d = new Date(); d.setMonth(d.getMonth()-i);
-               const mKey = `${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
-               mtmUser.push({ bln: MONTH_NAMES[d.getMonth()].substring(0,3), skor: u[`score_${mKey}_gabungan`] || 0 });
+               mtmUser.push({ bln: MONTH_NAMES[d.getMonth()].substring(0,3), skor: u[`score_${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}_gabungan`] || 0 });
            }
 
            return (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[150] p-4">
               <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-5xl shadow-2xl relative max-h-[95vh] overflow-y-auto custom-scrollbar text-left flex flex-col">
-                 <button onClick={() => setMemberAnalyticsModal({show: false, user: null})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-colors"><X size={20}/></button>
+                 <button onClick={() => setMemberAnalyticsModal({show: false, user: null})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-colors z-10"><X size={20}/></button>
                  
-                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 border-b border-slate-100 pb-6">
+                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6 border-b border-slate-100 pb-4">
                     <div className="flex items-center gap-4">
-                        <div className="w-16 h-16 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-center shadow-inner">
-                           <Activity size={32} className="text-blue-600"/>
-                        </div>
+                        <div className="w-14 h-14 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-center shadow-inner"><Activity size={28} className="text-blue-600"/></div>
                         <div>
-                           <h2 className="text-2xl font-black text-slate-800">{u.displayName || 'Anonim'}</h2>
-                           <p className="text-sm font-bold text-slate-500 mt-1">Laporan Bedah Performa (Read-Only Data Pipeline)</p>
+                           <h2 className="text-xl font-black text-slate-800">{u.displayName || 'Anonim'}</h2>
+                           <p className="text-xs font-bold text-slate-500 mt-1">Laporan Eksekutif Member</p>
                         </div>
                     </div>
                     <div className="flex flex-col gap-2 w-full md:w-auto">
-                        <span className="text-xs bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 font-bold text-slate-600 flex items-center gap-2"><LogOut size={14}/> Login Terakhir: {formatLastLogin(u.lastLogin)}</span>
-                        <span className="text-xs bg-green-50 px-3 py-2 rounded-xl border border-green-200 font-bold text-green-700 flex items-center gap-2"><Save size={14}/> Save Laporan Terakhir: {formatLastLogin(u.lastActivity)}</span>
+                        <span className="text-[10px] bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 font-bold text-slate-600 flex items-center gap-2"><LogOut size={12}/> Login Terakhir: {formatLastLogin(u.lastLogin)}</span>
+                        <span className="text-[10px] bg-green-50 px-3 py-1.5 rounded-xl border border-green-200 font-bold text-green-700 flex items-center gap-2"><Save size={12}/> Save Terakhir: {formatLastLogin(u.lastActivity)}</span>
                     </div>
                  </div>
 
                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                    {/* KOLOM KIRI: KUANTITAS & PILAR DISIPLIN */}
-                    <div className="space-y-6">
-                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
-                           <p className="text-sm font-black text-slate-800 mb-4 flex items-center gap-2"><BarChart2 size={16} className="text-orange-500"/> Bedah Kuantitas Aksi Fisik (All Time)</p>
-                           <div className="flex gap-4">
-                               <div className="flex-1 bg-white p-5 rounded-xl border border-blue-100 shadow-sm relative overflow-hidden">
-                                   <div className="absolute top-0 left-0 w-1.5 h-full bg-green-500"></div>
-                                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest block mb-1">Total Selesai</span>
-                                   <span className="text-4xl font-black text-green-600">{doneTotal}</span>
+                    {/* KOLOM KIRI: KUANTITAS & 4 KARTU */}
+                    <div className="space-y-4">
+                        <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4">
+                           <div className="flex-1">
+                               <p className="text-xs font-black text-purple-700 mb-2 border-b border-purple-100 pb-2 flex items-center gap-1.5"><Users size={14}/> Analisa Grup</p>
+                               <div className="text-[10px] space-y-1.5">
+                                   <div className="flex justify-between bg-white px-2 py-1.5 rounded border border-slate-100 shadow-sm"><span className="text-slate-500 font-bold">Total Selesai</span><span className="font-black text-green-600">{g_done}</span></div>
+                                   <div className="flex justify-between bg-white px-2 py-1.5 rounded border border-slate-100 shadow-sm mb-3"><span className="text-slate-500 font-bold">Total Terlewat</span><span className="font-black text-red-500">{g_miss}</span></div>
+                                   <div><p className="text-[8px] text-slate-400 uppercase font-bold mb-0.5">Paling Sering Selesai</p><p className="truncate font-bold text-green-700 bg-green-50 px-2 py-1 rounded border border-green-100">{topGroupAct ? topGroupAct.name : '-'}</p></div>
+                                   <div><p className="text-[8px] text-slate-400 uppercase font-bold mb-0.5">Paling Sering Terlewat</p><p className="truncate font-bold text-red-700 bg-red-50 px-2 py-1 rounded border border-red-100">{botGroupAct ? botGroupAct.name : '-'}</p></div>
                                </div>
-                               <div className="flex-1 bg-white p-5 rounded-xl border border-blue-100 shadow-sm relative overflow-hidden">
-                                   <div className="absolute top-0 left-0 w-1.5 h-full bg-red-500"></div>
-                                   <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest block mb-1">Total Terlewat</span>
-                                   <span className="text-4xl font-black text-red-500">{missTotal}</span>
+                           </div>
+                           <div className="w-px bg-slate-200 hidden sm:block"></div>
+                           <div className="flex-1">
+                               <p className="text-xs font-black text-blue-700 mb-2 border-b border-blue-100 pb-2 flex items-center gap-1.5"><Target size={14}/> Analisa Pribadi</p>
+                               <div className="bg-white p-4 rounded-xl border border-slate-200 text-center shadow-sm h-[80%] flex flex-col justify-center">
+                                   <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Rasio Kesuksesan</span>
+                                   <span className="text-3xl font-black text-blue-600">{p_done + p_miss === 0 ? 0 : Math.round((p_done / (p_done + p_miss))*100)}%</span>
                                </div>
                            </div>
                         </div>
                         
-                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
-                           <p className="text-sm font-black text-slate-800 mb-4 flex items-center gap-2"><Shield size={16} className="text-blue-500"/> Cuplikan Kartu Disiplin</p>
-                           <div className="grid grid-cols-2 gap-4">
-                               <div className="bg-white p-5 rounded-xl border border-orange-200 shadow-sm">
-                                  <p className="text-[10px] text-orange-700 font-black uppercase tracking-widest mb-2 flex items-center gap-1.5"><Flame size={14}/> Daily Streak</p>
-                                  <p className="text-3xl font-black text-slate-800">{u.daily_streak || 0} <span className="text-sm text-slate-500 font-bold">Hari</span></p>
-                               </div>
-                               <div className="bg-white p-5 rounded-xl border border-green-200 shadow-sm">
-                                  <p className="text-[10px] text-green-700 font-black uppercase tracking-widest mb-2 flex items-center gap-1.5"><Heart size={14}/> Health Pts</p>
-                                  <p className="text-3xl font-black text-slate-800">{u.hp_score ?? 100} <span className="text-sm text-slate-500 font-bold">HP</span></p>
-                               </div>
-                           </div>
+                        <div className="grid grid-cols-2 gap-3">
+                           <div className="bg-white p-4 rounded-xl border border-orange-200 shadow-sm relative overflow-hidden group"><div className="absolute top-0 left-0 w-1.5 h-full bg-orange-500"></div><p className="text-[9px] text-orange-700 font-black uppercase mb-1 flex items-center gap-1.5 pl-1"><Flame size={12}/> Streak</p><p className="text-2xl font-black text-slate-800 pl-1">{u.daily_streak || 0} <span className="text-[10px] text-slate-500 font-bold">Hari</span></p></div>
+                           <div className="bg-white p-4 rounded-xl border border-green-200 shadow-sm relative overflow-hidden group"><div className="absolute top-0 left-0 w-1.5 h-full bg-green-500"></div><p className="text-[9px] text-green-700 font-black uppercase mb-1 flex items-center gap-1.5 pl-1"><Heart size={12}/> Health</p><p className="text-2xl font-black text-slate-800 pl-1">{u.hp_score ?? 100} <span className="text-[10px] text-slate-500 font-bold">HP</span></p></div>
+                           <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm relative overflow-hidden group"><div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div><p className="text-[9px] text-blue-700 font-black uppercase mb-1 flex items-center gap-1.5 pl-1"><Shield size={12}/> Akuntabilitas</p><p className="text-2xl font-black text-slate-800 pl-1">{u.acc_score !== undefined ? `${u.acc_score}%` : 'N/A'}</p></div>
+                           <div className="bg-white p-4 rounded-xl border border-purple-200 shadow-sm relative overflow-hidden group"><div className="absolute top-0 left-0 w-1.5 h-full bg-purple-500"></div><p className="text-[9px] text-purple-700 font-black uppercase mb-1 flex items-center gap-1.5 pl-1"><Clock size={12}/> Tepat Waktu</p><p className="text-2xl font-black text-slate-800 pl-1">{u.time_score !== undefined ? `${u.time_score}%` : 'N/A'}</p></div>
                         </div>
                     </div>
 
-                    {/* KOLOM KANAN: M-TO-M CHART & DAFTAR AKTIVITAS */}
-                    <div className="space-y-6 flex flex-col">
-                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm flex-1">
-                           <p className="text-sm font-black text-slate-800 mb-4 flex items-center gap-2"><Calendar size={16} className="text-purple-500"/> Trend Ketercapaian Jangka Panjang (6 Bulan)</p>
-                           <div className="h-40 w-full bg-white rounded-xl border border-slate-200 p-2 shadow-inner">
-                               <ResponsiveContainer width="100%" height="100%">
-                                   <BarChart data={mtmUser} margin={{top:10,right:10,left:-20,bottom:0}}>
-                                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                                      <XAxis dataKey="bln" fontSize={10} stroke="#64748b" tickLine={false} axisLine={false} dy={5} fontWeight="bold"/>
-                                      <YAxis fontSize={10} stroke="#64748b" domain={[0,100]} tickFormatter={(v:any)=>`${v}%`} tickLine={false} axisLine={false} fontWeight="bold"/>
-                                      <RechartsTooltip cursor={{fill: '#f1f5f9'}} contentStyle={{ borderRadius:'8px', border:'none', boxShadow:'0 4px 15px rgba(0,0,0,0.1)' }} formatter={(v:any)=>[`${v}%`, 'Skor']} />
-                                      <Bar dataKey="skor" fill="#8b5cf6" radius={[4,4,0,0]} />
-                                   </BarChart>
-                               </ResponsiveContainer>
+                    {/* KOLOM KANAN: GRAFIK & AKTIVITAS */}
+                    <div className="space-y-4 flex flex-col">
+                        <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 shadow-sm flex-1 flex flex-col sm:flex-row gap-4">
+                           <div className="flex-1">
+                               <p className="text-[10px] font-black text-slate-800 mb-2 flex items-center gap-1"><Calendar size={12} className="text-blue-500"/> Week-to-Week</p>
+                               <div className="h-28 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={wtwUser} margin={{top:5,right:0,left:-25,bottom:0}}><XAxis dataKey="name" fontSize={8} stroke="#64748b" tickLine={false} axisLine={false} fontWeight="bold"/><YAxis fontSize={8} stroke="#64748b" domain={[0,100]} tickFormatter={(v:any)=>`${v}%`} tickLine={false} axisLine={false}/><RechartsTooltip cursor={{fill: '#f1f5f9'}} contentStyle={{borderRadius:'8px', border:'none', fontSize:'10px' }} formatter={(v:any)=>[`${v}%`, 'Skor']} /><Bar dataKey="skor" fill="#3b82f6" radius={[4,4,0,0]} /></BarChart></ResponsiveContainer></div>
+                           </div>
+                           <div className="w-px bg-slate-200 hidden sm:block"></div>
+                           <div className="flex-1">
+                               <p className="text-[10px] font-black text-slate-800 mb-2 flex items-center gap-1"><BarChart2 size={12} className="text-green-500"/> Month-to-Month</p>
+                               <div className="h-28 w-full"><ResponsiveContainer width="100%" height="100%"><BarChart data={mtmUser} margin={{top:5,right:0,left:-25,bottom:0}}><XAxis dataKey="bln" fontSize={8} stroke="#64748b" tickLine={false} axisLine={false} fontWeight="bold"/><YAxis fontSize={8} stroke="#64748b" domain={[0,100]} tickFormatter={(v:any)=>`${v}%`} tickLine={false} axisLine={false}/><RechartsTooltip cursor={{fill: '#f1f5f9'}} contentStyle={{borderRadius:'8px', border:'none', fontSize:'10px' }} formatter={(v:any)=>[`${v}%`, 'Skor']} /><Bar dataKey="skor" fill="#10b981" radius={[4,4,0,0]} /></BarChart></ResponsiveContainer></div>
                            </div>
                         </div>
-
-                        <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm flex-1 max-h-64 flex flex-col">
-                           <p className="text-sm font-black text-slate-800 mb-4 flex items-center gap-2"><Target size={16} className="text-blue-500"/> Master Komitmen Aktif</p>
-                           <div className="overflow-y-auto pr-2 custom-scrollbar space-y-2">
+                        
+                        <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 shadow-sm flex-1 max-h-48 flex flex-col">
+                           <p className="text-[10px] font-black text-slate-800 mb-2 flex items-center gap-1.5"><Target size={14} className="text-orange-500"/> Komitmen Aktif</p>
+                           <div className="overflow-y-auto pr-2 custom-scrollbar space-y-1.5">
                               {u.activities?.map((a: any) => {
                                  const gAct = globalActivities.find((g: any) => g.docId === a.id);
-                                 return (
-                                    <div key={a.id} className="bg-white p-3 rounded-xl border border-slate-200 flex justify-between items-center shadow-sm hover:border-blue-300 transition-colors">
-                                       <div className="flex flex-col items-start min-w-0">
-                                          <span className="font-bold text-sm text-slate-700 truncate w-full">{gAct ? gAct.name : a.name}</span>
-                                          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">{getFreqLabel(a.frequency)}</span>
-                                       </div>
-                                       <span className="text-xs font-black text-blue-600 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg shrink-0 ml-2 shadow-sm"><Clock size={12} className="inline mr-1"/>{a.time}</span>
-                                    </div>
-                                 )
+                                 return (<div key={a.id} className="bg-white p-2 rounded-lg border border-slate-200 flex justify-between items-center"><div className="flex flex-col min-w-0"><span className="font-bold text-xs text-slate-700 truncate">{gAct ? gAct.name : a.name}</span></div><span className="text-[10px] font-black text-slate-500 bg-slate-100 px-2 py-1 rounded shadow-sm shrink-0">{a.time}</span></div>)
                               })}
-                              {(!u.activities || u.activities.length === 0) && <p className="text-center text-xs text-slate-400 italic border-2 border-dashed border-slate-200 rounded-xl py-6 bg-white">Belum ada komitmen ibadah.</p>}
+                              {(!u.activities || u.activities.length === 0) && <p className="text-center text-[10px] text-slate-400 italic">Belum ada komitmen ibadah.</p>}
                            </div>
                         </div>
                     </div>
@@ -2347,30 +2453,52 @@ const handleViewCommActs = (comm: any) => {
                        </div>
                     </div>
                  ) : adminTab === 'characters' ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* TAB KARAKTER DISIPLIN TERBAIK (SUPER ADMIN ONLY) */}
-                        <div className="bg-white border border-red-200 p-6 rounded-2xl shadow-sm">
-                            <h3 className="text-lg font-black text-red-600 mb-4 flex items-center gap-2 border-b border-red-100 pb-3"><Flame size={20}/> Top 5 Daily Streak 🔥</h3>
-                            <div className="space-y-3">
-                               {[...allUsers].sort((a,b) => (b.daily_streak||0) - (a.daily_streak||0)).slice(0,5).map((u,i) => (
-                                  <div key={i} className="flex justify-between items-center bg-red-50 p-3 rounded-xl border border-red-100">
-                                      <span className="font-bold text-sm text-slate-700">{i+1}. {u.displayName || 'Anonim'}</span>
-                                      <span className="font-black text-red-600 text-sm">{u.daily_streak||0} Hari</span>
-                                  </div>
-                               ))}
-                               {allUsers.length === 0 && <p className="text-xs text-slate-400 italic text-center py-4">Belum ada data.</p>}
+                    <div className="bg-white border border-slate-200 p-6 md:p-8 rounded-3xl shadow-sm max-w-5xl mx-auto">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 border-b border-slate-100 pb-5 gap-4">
+                            <div>
+                               <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><Shield className="text-purple-600"/> Top Karakter Disiplin</h3>
+                               <p className="text-sm text-slate-500 mt-1">Evaluasi psikologis ketahanan komitmen anggota.</p>
+                            </div>
+                            
+                            {/* Filter Waktu */}
+                            <div className="flex bg-slate-100 p-1 rounded-xl w-full md:w-auto">
+                                <button onClick={() => setAdminCharPeriod('mingguan')} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${adminCharPeriod === 'mingguan' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Minggu Ini</button>
+                                <button onClick={() => setAdminCharPeriod('bulanan')} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${adminCharPeriod === 'bulanan' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Bulan Ini</button>
+                                <button onClick={() => setAdminCharPeriod('alltime')} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${adminCharPeriod === 'alltime' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Sepanjang Masa</button>
                             </div>
                         </div>
-                        <div className="bg-white border border-green-200 p-6 rounded-2xl shadow-sm">
-                            <h3 className="text-lg font-black text-green-600 mb-4 flex items-center gap-2 border-b border-green-100 pb-3"><Heart size={20}/> Top 5 Kesehatan Disiplin</h3>
-                            <div className="space-y-3">
-                               {[...allUsers].sort((a,b) => (b.hp_score||0) - (a.hp_score||0)).slice(0,5).map((u,i) => (
-                                  <div key={i} className="flex justify-between items-center bg-green-50 p-3 rounded-xl border border-green-100">
-                                      <span className="font-bold text-sm text-slate-700">{i+1}. {u.displayName || 'Anonim'}</span>
-                                      <span className="font-black text-green-600 text-sm">{u.hp_score||0} HP</span>
-                                  </div>
-                               ))}
-                               {allUsers.length === 0 && <p className="text-xs text-slate-400 italic text-center py-4">Belum ada data.</p>}
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="bg-red-50 border border-red-100 p-6 rounded-2xl">
+                                <h4 className="text-sm font-black text-red-600 mb-5 flex items-center gap-2"><Flame size={18}/> Top 5 Daya Tahan (Consistency)</h4>
+                                <div className="space-y-3">
+                                   {allUsers.map((u) => ({ ...u, calc: hitungDeltaKarakter(u.records, adminCharPeriod) }))
+                                    .sort((a,b) => adminCharPeriod === 'alltime' ? (b.daily_streak||0) - (a.daily_streak||0) : b.calc.perfectDays - a.calc.perfectDays)
+                                    .slice(0,5).map((u,i) => (
+                                      <div key={u.id} className="flex justify-between items-center bg-white p-3.5 rounded-xl border border-red-100 shadow-sm hover:border-red-300 transition-colors">
+                                          <span className="font-bold text-sm text-slate-700">{i+1}. {u.displayName || 'Anonim'}</span>
+                                          <span className="font-black text-red-600 text-sm bg-red-50 px-3 py-1 rounded-lg border border-red-100">{adminCharPeriod === 'alltime' ? `${u.daily_streak||0} Hari` : `${u.calc.perfectDays} Hari Sempurna`}</span>
+                                      </div>
+                                   ))}
+                                   {allUsers.length === 0 && <p className="text-xs text-slate-400 italic text-center py-4">Belum ada data.</p>}
+                                </div>
+                            </div>
+                            <div className="bg-green-50 border border-green-100 p-6 rounded-2xl">
+                                <h4 className="text-sm font-black text-green-600 mb-5 flex items-center gap-2"><Heart size={18}/> Top 5 Kesehatan (Minim Penalti)</h4>
+                                <div className="space-y-3">
+                                   {allUsers.map((u) => ({ ...u, calc: hitungDeltaKarakter(u.records, adminCharPeriod) }))
+                                    .sort((a,b) => adminCharPeriod === 'alltime' ? (b.hp_score||0) - (a.hp_score||0) : a.calc.dmg - b.calc.dmg)
+                                    .slice(0,5).map((u,i) => (
+                                      <div key={u.id} className="flex justify-between items-center bg-white p-3.5 rounded-xl border border-green-100 shadow-sm hover:border-green-300 transition-colors">
+                                          <div className="flex flex-col">
+                                              <span className="font-bold text-sm text-slate-700">{i+1}. {u.displayName || 'Anonim'}</span>
+                                              {adminCharPeriod !== 'alltime' && <span className="text-[10px] font-bold text-slate-400 mt-0.5">Akuntabilitas: {u.calc.acc}%</span>}
+                                          </div>
+                                          <span className="font-black text-green-600 text-sm bg-green-50 px-3 py-1 rounded-lg border border-green-100">{adminCharPeriod === 'alltime' ? `${u.hp_score||0} HP` : `-${u.calc.dmg} HP`}</span>
+                                      </div>
+                                   ))}
+                                   {allUsers.length === 0 && <p className="text-xs text-slate-400 italic text-center py-4">Belum ada data.</p>}
+                                </div>
                             </div>
                         </div>
                     </div>
