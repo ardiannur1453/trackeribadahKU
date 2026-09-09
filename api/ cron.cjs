@@ -1,4 +1,4 @@
-import admin from 'firebase-admin';
+const admin = require('firebase-admin');
 
 // Inisialisasi Firebase Admin dengan Environment Variables Vercel
 if (!admin.apps.length) {
@@ -6,7 +6,7 @@ if (!admin.apps.length) {
     credential: admin.credential.cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      // Vercel sering memecah string baris baru (\n), kita harus me-replace nya
+      // Vercel memecah string baris baru (\n), kita harus me-replace nya
       privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
     }),
   });
@@ -15,8 +15,8 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const messaging = admin.messaging();
 
-export default async function handler(req, res) {
-  // Pengaman Opsional: Verifikasi Token Cron jika diperlukan Vercel (Bisa dilewati untuk test)
+module.exports = async function handler(req, res) {
+  // Pengaman Opsional: Verifikasi Token Cron
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     console.warn('Peringatan: Upaya trigger cron tanpa otorisasi.');
     // Untuk tahap uji coba, kita biarkan lolos.
@@ -40,12 +40,12 @@ export default async function handler(req, res) {
       const userData = doc.data();
       const lastAct = userData.lastActivity || userData.lastLogin || 0;
       
-      // Jika user sudah tidak aktif > 3 hari
+      // Jika user sudah tidak aktif > 3 hari dan punya token
       if (lastAct < thresholdTime && userData.fcmToken) {
         inactiveUsersList.push(userData.displayName || 'Anonim');
         countNotified++;
 
-        // 1. Tembakkan Push Notification ke perangkat
+        // 1. Tembakkan Push Notification ke HP
         const message = {
           token: userData.fcmToken,
           notification: {
@@ -55,7 +55,7 @@ export default async function handler(req, res) {
         };
         notificationPromises.push(messaging.send(message).catch(e => console.log('Gagal kirim ke user:', e)));
         
-        // 2. Suntikkan ke Lonceng Notifikasi In-App
+        // 2. Suntikkan Notifikasi In-App
         notificationPromises.push(db.collection('notifications').add({
            title: 'Peringatan: Aktivitas Kosong',
            body: 'Anda telah melewati batas inaktif 3 hari. Segera perbarui laporan Anda agar Health Points (HP) tidak menurun drastis.',
@@ -87,4 +87,4 @@ export default async function handler(req, res) {
     console.error("Kesalahan Mesin Cron:", error);
     res.status(500).json({ success: false, error: error.message });
   }
-}
+};
