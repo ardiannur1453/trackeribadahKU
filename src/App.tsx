@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 import html2canvas from 'html2canvas';
 import { ComposedChart, Area, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import { 
@@ -27,6 +28,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+// [NEW SIKLUS 9] Inisialisasi FCM dengan pengaman pencegah crash di browser non-support
+const messaging = typeof window !== 'undefined' && 'Notification' in window ? getMessaging(app) : null;
 
 // ==========================================
 // HELPER & KONSTANTA
@@ -1373,6 +1376,35 @@ const handleViewCommActs = (comm: any) => {
   // ==========================================
   // 11. FITUR JURNAL, SHARE & EXPORT
   // ==========================================
+  // [NEW SIKLUS 9] Logika Permintaan Izin Push Notification & Simpan Token
+  const enablePushNotifications = async () => {
+    if (!messaging) return showToast("Browser Anda tidak mendukung Push Notification.");
+    
+    try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+            showToast("Memproses pendaftaran perangkat...");
+            // KUNCI VAPID (Digenerate dari Firebase Console -> Project Settings -> Cloud Messaging -> Web Push certificates)
+            const currentToken = await getToken(messaging, { vapidKey: BLMVbrj9rI1gF1uzxBnepvUxIxg1U2M3sN-pXhkVQO4Dmvshs4Gw5W9AQfAvTVBoHYGEHWvVzgDgjb711CdJaHA });
+            
+            if (currentToken) {
+                await setDoc(doc(db, 'users', user.uid), {
+                    fcmToken: currentToken,
+                    notifEnabled: true
+                }, { merge: true });
+                showToast("Berhasil! Perangkat ini akan menerima notifikasi otomatis.");
+            } else {
+                showToast("Gagal mendapatkan token perangkat.");
+            }
+        } else {
+            showToast("Izin notifikasi ditolak oleh sistem.");
+        }
+    } catch (error) {
+        console.error("FCM Error:", error);
+        showToast("Terjadi kesalahan saat mengaktifkan notifikasi.");
+    }
+};
+  
   const handleLogout = () => {
     if (hasUnsavedChanges && !window.confirm("PERINGATAN: Ada perubahan yang belum disimpan. Yakin ingin keluar?")) return; 
     signOut(auth);
@@ -1810,6 +1842,12 @@ const handleViewCommActs = (comm: any) => {
                  <p className="text-slate-500 text-sm mb-6 border-b pb-4">Kelola data dan sesi aplikasi Anda.</p>
                  
                  <div className="space-y-6 mb-8 text-left">
+                     {/* [NEW SIKLUS 9] TOMBOL AKTIVASI PUSH NOTIFIKASI */}
+                     <div className="bg-purple-50 border border-purple-100 p-4 rounded-xl mb-4">
+                         <h4 className="font-bold text-purple-800 mb-2 flex items-center gap-2 text-sm"><Bell size={16}/> Push Notifikasi Sistem</h4>
+                         <p className="text-[10px] text-purple-600 mb-3">Aktifkan untuk menerima peringatan jadwal terlewat dan pesan broadcast dari Admin langsung ke layar Anda.</p>
+                         <button onClick={enablePushNotifications} className="w-full bg-white border border-purple-200 text-purple-700 font-bold py-2 rounded-lg hover:bg-purple-100 transition-colors text-xs flex items-center justify-center gap-1.5 shadow-sm"><Zap size={14}/> Daftarkan Perangkat Ini</button>
+                     </div>
                      <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl">
                          <h4 className="font-bold text-blue-800 mb-2 flex items-center gap-2 text-sm"><FileUp size={16}/> Backup & Restore</h4>
                          <p className="text-[10px] text-blue-600 mb-3">Simpan seluruh rekam jejak Anda ke file, atau pulihkan data dari file backup sebelumnya.</p>
