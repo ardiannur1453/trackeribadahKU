@@ -1385,7 +1385,16 @@ const handleViewCommActs = (comm: any) => {
         if (permission === 'granted') {
             showToast("Memproses pendaftaran perangkat...");
             // KUNCI VAPID (Digenerate dari Firebase Console -> Project Settings -> Cloud Messaging -> Web Push certificates)
-            const currentToken = await getToken(messaging, { vapidKey: BLMVbrj9rI1gF1uzxBnepvUxIxg1U2M3sN-pXhkVQO4Dmvshs4Gw5W9AQfAvTVBoHYGEHWvVzgDgjb711CdJaHA });
+            showToast("Memproses pendaftaran perangkat...");
+              
+              // [UPDATED SIKLUS 9] Registrasi Service Worker Manual (Bypass Firebase Auto-Detect Error)
+              const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+              await navigator.serviceWorker.ready; // Tunggu sampai pekerja benar-benar aktif
+              
+              const currentToken = await getToken(messaging, { 
+                  vapidKey: BLMVbrj9rI1gF1uzxBnepvUxIxg1U2M3sN-pXhkVQO4Dmvshs4Gw5W9AQfAvTVBoHYGEHWvVzgDgjb711CdJaHA, // PASTIKAN VAPID KEY ANDA DIMASUKKAN KEMBALI DI SINI
+                  serviceWorkerRegistration: registration 
+              });
             
             if (currentToken) {
                 await setDoc(doc(db, 'users', user.uid), {
@@ -1399,9 +1408,9 @@ const handleViewCommActs = (comm: any) => {
         } else {
             showToast("Izin notifikasi ditolak oleh sistem.");
         }
-    } catch (error) {
-        console.error("FCM Error:", error);
-        showToast("Terjadi kesalahan saat mengaktifkan notifikasi.");
+    } catch (error: any) {
+        console.error("FCM Error Detail:", error);
+        showToast(`Gagal: ${error.message || "Kesalahan tidak diketahui"}`);
     }
 };
   
