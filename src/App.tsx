@@ -1392,7 +1392,7 @@ const handleViewCommActs = (comm: any) => {
               await navigator.serviceWorker.ready; // Tunggu sampai pekerja benar-benar aktif
               
               const currentToken = await getToken(messaging, { 
-                  vapidKey: BLMVbrj9rI1gF1uzxBnepvUxIxg1U2M3sN-pXhkVQO4Dmvshs4Gw5W9AQfAvTVBoHYGEHWvVzgDgjb711CdJaHA, // PASTIKAN VAPID KEY ANDA DIMASUKKAN KEMBALI DI SINI
+                  vapidKey: 'BLMVbrj9rI1gF1uzxBnepvUxIxg1U2M3sN-pXhkVQO4Dmvshs4Gw5W9AQfAvTVBoHYGEHWvVzgDgjb711CdJaHA', // PASTIKAN VAPID KEY ANDA DIMASUKKAN KEMBALI DI SINI
                   serviceWorkerRegistration: registration 
               });
             
