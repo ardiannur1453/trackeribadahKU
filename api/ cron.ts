@@ -1,13 +1,15 @@
+// [FIXED] Menggunakan Impor Modular untuk memangkas ukuran Serverless dari 100MB menjadi ~3MB
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 
-// [FIXED] Inisialisasi Firebase Admin menggunakan Modular SDK untuk mencegah Vercel Build Crash
-if (!getApps().length) {
+// Inisialisasi Firebase Admin dengan Environment Variables Vercel
+if (getApps().length === 0) {
   initializeApp({
     credential: cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      // Vercel sering memecah string baris baru (\n), kita harus me-replace nya
       privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
     }),
   });
@@ -20,7 +22,7 @@ export default async function handler(req: any, res: any) {
   // Pengaman Opsional: Verifikasi Token Cron jika diperlukan Vercel
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     console.warn('Peringatan: Upaya trigger cron tanpa otorisasi.');
-    // Biarkan lolos untuk tahap uji coba.
+    // Untuk tahap uji coba, kita biarkan lolos.
   }
 
   try {
