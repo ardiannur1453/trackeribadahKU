@@ -1,6 +1,6 @@
-import admin from 'firebase-admin';
+const admin = require('firebase-admin');
 
-// [UPDATED] Inisialisasi Firebase Admin dengan Environment Variables Vercel
+// Inisialisasi Firebase Admin dengan Environment Variables Vercel
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -15,7 +15,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const messaging = admin.messaging();
 
-export default async function handler(req: any, res: any) {
+module.exports = async function handler(req, res) {
   // Pengaman Opsional: Verifikasi Token Cron jika diperlukan Vercel (Bisa dilewati untuk test)
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     console.warn('Peringatan: Upaya trigger cron tanpa otorisasi.');
@@ -33,10 +33,8 @@ export default async function handler(req: any, res: any) {
     const snapshot = await usersRef.where('notifEnabled', '==', true).get();
 
     let countNotified = 0;
-    let inactiveUsersList: string[] = [];
-    
-    // Gunakan Promise.all untuk eksekusi paralel agar cepat
-    const notificationPromises: Promise<any>[] = [];
+    let inactiveUsersList = [];
+    const notificationPromises = [];
 
     snapshot.forEach((doc) => {
       const userData = doc.data();
@@ -55,7 +53,7 @@ export default async function handler(req: any, res: any) {
             body: `Halo ${userData.displayName?.split(' ')[0] || 'Kak'}, sudah 3 hari komitmen ibadahmu kosong. Yuk isi sekarang agar rantai pahalamu tidak terputus!`,
           }
         };
-        notificationPromises.push(messaging.send(message).catch((e: any) => console.log('Gagal kirim ke user:', e)));
+        notificationPromises.push(messaging.send(message).catch(e => console.log('Gagal kirim ke user:', e)));
         
         // 2. Suntikkan ke sistem Lonceng Dalam Aplikasi (In-App)
         notificationPromises.push(db.collection('notifications').add({
@@ -85,8 +83,8 @@ export default async function handler(req: any, res: any) {
 
     await Promise.all(notificationPromises);
     res.status(200).json({ success: true, message: `Berhasil memproses ${countNotified} user inaktif.` });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Kesalahan Mesin Cron:", error);
     res.status(500).json({ success: false, error: error.message });
   }
-}
+};
