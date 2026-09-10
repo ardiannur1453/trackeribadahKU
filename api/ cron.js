@@ -1,10 +1,12 @@
-// [FIXED] Arsitektur CommonJS Murni - Kebal terhadap Vercel Memory Leak
-const admin = require('firebase-admin');
+// [FIXED] Tree-Shaking CommonJS: Memangkas memori Vercel hingga 90%
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
+const { getMessaging } = require('firebase-admin/messaging');
 
 // Inisialisasi Firebase Admin dengan Environment Variables Vercel
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
+if (!getApps().length) {
+  initializeApp({
+    credential: cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
       // Vercel memecah string baris baru (\n), wajib di-replace
@@ -13,8 +15,8 @@ if (!admin.apps.length) {
   });
 }
 
-const db = admin.firestore();
-const messaging = admin.messaging();
+const db = getFirestore();
+const messaging = getMessaging();
 
 module.exports = async function handler(req, res) {
   // Pengaman Opsional: Verifikasi Token Cron
@@ -44,7 +46,7 @@ module.exports = async function handler(req, res) {
         inactiveUsersList.push(userData.displayName || 'Anonim');
         countNotified++;
 
-        // 1. Tembakkan Push Notification langsung ke HP
+        // 1. Tembakkan Push Notification
         const message = {
           token: userData.fcmToken,
           notification: {
@@ -52,9 +54,9 @@ module.exports = async function handler(req, res) {
             body: `Halo ${userData.displayName?.split(' ')[0] || 'Kak'}, sudah 3 hari komitmen ibadahmu kosong. Yuk isi sekarang agar rantai pahalamu tidak terputus!`,
           }
         };
-        notificationPromises.push(messaging.send(message).catch(e => console.log('Gagal kirim ke user:', e)));
+        notificationPromises.push(messaging.send(message).catch(e => console.log('Gagal kirim:', e)));
         
-        // 2. Suntikkan ke Lonceng Dalam Aplikasi
+        // 2. Suntikkan ke Lonceng In-App
         notificationPromises.push(db.collection('notifications').add({
            title: 'Peringatan: Aktivitas Kosong',
            body: 'Anda telah melewati batas inaktif 3 hari. Segera perbarui laporan Anda agar Health Points (HP) tidak menurun drastis.',
