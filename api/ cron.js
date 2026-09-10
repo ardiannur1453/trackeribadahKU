@@ -1,28 +1,29 @@
-// [FIXED] Pemanggilan Modular untuk Mencegah Vercel Overload (Tree-Shaking)
-import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getMessaging } from 'firebase-admin/messaging';
+// [UPDATED] Protokol Native Bridge: Memuat CommonJS di dalam lingkungan ESM
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+
+// Mesin Vercel akan mengabaikan ini dari kompilasi ESM yang berat
+const admin = require('firebase-admin');
 
 // Inisialisasi Firebase Admin dengan Environment Variables Vercel
-if (!getApps().length) {
-  initializeApp({
-    credential: cert({
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      // Vercel memecah string baris baru (\n), wajib di-replace
+      // Memecah karakter baris baru (\n) dari Secret Vercel
       privateKey: process.env.FIREBASE_PRIVATE_KEY ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') : undefined,
     }),
   });
 }
 
-const db = getFirestore();
-const messaging = getMessaging();
+const db = admin.firestore();
+const messaging = admin.messaging();
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req, res) {
   // Pengaman Opsional: Verifikasi Token Cron
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     console.warn('Peringatan: Upaya trigger cron tanpa otorisasi.');
-    // Biarkan lolos untuk uji coba manual
   }
 
   try {
@@ -36,8 +37,8 @@ export default async function handler(req: any, res: any) {
     const snapshot = await usersRef.where('notifEnabled', '==', true).get();
 
     let countNotified = 0;
-    let inactiveUsersList: string[] = [];
-    const notificationPromises: Promise<any>[] = [];
+    let inactiveUsersList = [];
+    const notificationPromises = [];
 
     snapshot.forEach((doc) => {
       const userData = doc.data();
@@ -55,7 +56,7 @@ export default async function handler(req: any, res: any) {
             body: `Halo ${userData.displayName?.split(' ')[0] || 'Kak'}, sudah 3 hari komitmen ibadahmu kosong. Yuk isi sekarang agar rantai pahalamu tidak terputus!`,
           }
         };
-        notificationPromises.push(messaging.send(message).catch((e: any) => console.log('Gagal kirim ke user:', e)));
+        notificationPromises.push(messaging.send(message).catch(e => console.log('Gagal kirim ke user:', e)));
         
         // 2. Suntikkan ke Lonceng Dalam Aplikasi
         notificationPromises.push(db.collection('notifications').add({
@@ -84,7 +85,7 @@ export default async function handler(req: any, res: any) {
 
     await Promise.all(notificationPromises);
     res.status(200).json({ success: true, message: `Berhasil memproses ${countNotified} user inaktif.` });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Kesalahan Mesin Cron:", error);
     res.status(500).json({ success: false, error: error.message });
   }
