@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, updateDoc } from 'firebase/firestore';
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { getMessaging, getToken } from 'firebase/messaging';
 import html2canvas from 'html2canvas';
 import { ComposedChart, Area, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import { 
-  Trash2, Edit3, Eye, Download, LogOut, Check, X, AlertCircle, RefreshCw, 
+  Trash2, Edit3, Eye, Download, LogOut, Check, X, RefreshCw, 
   ChevronLeft, ChevronRight, AlertTriangle, BarChart2, Save, Zap, Plus, 
   Award, Search, Shield, Medal, Users, Info, KeyRound, Copy, Target, 
   Clock, Calendar, Activity, Settings, Crown, UserMinus, FileUp, 
@@ -229,45 +229,7 @@ const [editNotif, setEditNotif] = useState<any>(null);
   const [editGlobalActId, setEditGlobalActId] = useState<string|null>(null);
   const [newGlobalAct, setNewGlobalAct] = useState({ name: '', time: '00:00', frequency: 'daily', freqConfig: '' });
 
-// [NEW SIKLUS 9] State untuk Kontrol Tab Leaderboard
-const [lbType, setLbType] = useState('aktivitas'); // 'aktivitas' | 'karakter'
-const [lbPeriod, setLbPeriod] = useState('mingguan'); // 'mingguan' | 'bulanan' | 'alltime'
-
-// [NEW SIKLUS 9] Helper: Kalkulator Skor Karakter Tanpa Sentuh Database
-const hitungSkorKarakter = (records: any, period: string) => {
-    if (!records) return { acc: 0, dmg: 0, net: 0 };
-    
-    const now = new Date();
-    const currMonth = now.getMonth();
-    const currYear = now.getFullYear();
-    
-    // Ambil hari Senin minggu ini
-    const day = now.getDay();
-    const diff = now.getDate() - day + (day === 0 ? -6 : 1); 
-    const startOfWeek = new Date(now.setDate(diff));
-    startOfWeek.setHours(0,0,0,0);
-
-    let done = 0, missed = 0;
-
-    Object.entries(records).forEach(([key, val]: any) => {
-        const dateStr = key.substring(0, 10); // Ambil 'YYYY-MM-DD'
-        const recDate = new Date(dateStr);
-        
-        let masukHitungan = false;
-        if (period === 'bulanan' && recDate.getMonth() === currMonth && recDate.getFullYear() === currYear) masukHitungan = true;
-        if (period === 'mingguan' && recDate >= startOfWeek) masukHitungan = true;
-        if (period === 'alltime') masukHitungan = true;
-
-        if (masukHitungan) {
-            if (val.status === 'done') done++;
-            if (val.status === 'missed') missed++;
-        }
-    });
-
-    const acc = (done + missed) === 0 ? 0 : Math.round((done / (done + missed)) * 100);
-    const dmg = missed * 2; // Asumsi setiap terlewat poin HP minus 2
-    return { acc, dmg, net: acc - dmg };
-};
+// [FIXED] Blok State Leaderboard Karakter lama telah dibersihkan untuk optimasi kompilasi Vercel
 
   // --- REFERENCES ---
   const chartRef = useRef<HTMLDivElement>(null);
@@ -1384,15 +1346,14 @@ const handleViewCommActs = (comm: any) => {
         const permission = await Notification.requestPermission();
         if (permission === 'granted') {
             showToast("Memproses pendaftaran perangkat...");
-            // KUNCI VAPID (Digenerate dari Firebase Console -> Project Settings -> Cloud Messaging -> Web Push certificates)
-            showToast("Memproses pendaftaran perangkat...");
               
               // [UPDATED SIKLUS 9] Registrasi Service Worker Manual (Bypass Firebase Auto-Detect Error)
               const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
               await navigator.serviceWorker.ready; // Tunggu sampai pekerja benar-benar aktif
               
-              const currentToken = await getToken(messaging, { 
-                  vapidKey: 'BLMVbrj9rI1gF1uzxBnepvUxIxg1U2M3sN-pXhkVQO4Dmvshs4Gw5W9AQfAvTVBoHYGEHWvVzgDgjb711CdJaHA', // PASTIKAN VAPID KEY ANDA DIMASUKKAN KEMBALI DI SINI
+              // [FIXED] Bypass TypeScript Strict Mode 
+              const currentToken = await getToken(messaging as any, { 
+                  vapidKey: 'BLMVbrj9rI1gF1uzxBnepvUxIxg1U2M3sN-pXhkVQO4Dmvshs4Gw5W9AQfAvTVBoHYGEHWvVzgDgjb711CdJaHA',
                   serviceWorkerRegistration: registration 
               });
             
