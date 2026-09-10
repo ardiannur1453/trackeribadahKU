@@ -1,9 +1,12 @@
-import admin from 'firebase-admin';
+// [FIXED] Pemanggilan Modular untuk Mencegah Vercel Overload (Tree-Shaking)
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getMessaging } from 'firebase-admin/messaging';
 
 // Inisialisasi Firebase Admin dengan Environment Variables Vercel
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
+if (!getApps().length) {
+  initializeApp({
+    credential: cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
       // Vercel memecah string baris baru (\n), wajib di-replace
@@ -12,10 +15,10 @@ if (!admin.apps.length) {
   });
 }
 
-const db = admin.firestore();
-const messaging = admin.messaging();
+const db = getFirestore();
+const messaging = getMessaging();
 
-export default async function handler(req, res) {
+export default async function handler(req: any, res: any) {
   // Pengaman Opsional: Verifikasi Token Cron
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     console.warn('Peringatan: Upaya trigger cron tanpa otorisasi.');
@@ -33,8 +36,8 @@ export default async function handler(req, res) {
     const snapshot = await usersRef.where('notifEnabled', '==', true).get();
 
     let countNotified = 0;
-    let inactiveUsersList = [];
-    const notificationPromises = [];
+    let inactiveUsersList: string[] = [];
+    const notificationPromises: Promise<any>[] = [];
 
     snapshot.forEach((doc) => {
       const userData = doc.data();
@@ -52,7 +55,7 @@ export default async function handler(req, res) {
             body: `Halo ${userData.displayName?.split(' ')[0] || 'Kak'}, sudah 3 hari komitmen ibadahmu kosong. Yuk isi sekarang agar rantai pahalamu tidak terputus!`,
           }
         };
-        notificationPromises.push(messaging.send(message).catch(e => console.log('Gagal kirim ke user:', e)));
+        notificationPromises.push(messaging.send(message).catch((e: any) => console.log('Gagal kirim ke user:', e)));
         
         // 2. Suntikkan ke Lonceng Dalam Aplikasi
         notificationPromises.push(db.collection('notifications').add({
@@ -81,7 +84,7 @@ export default async function handler(req, res) {
 
     await Promise.all(notificationPromises);
     res.status(200).json({ success: true, message: `Berhasil memproses ${countNotified} user inaktif.` });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Kesalahan Mesin Cron:", error);
     res.status(500).json({ success: false, error: error.message });
   }
