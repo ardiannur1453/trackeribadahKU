@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
+// [NEW] Import Kebutuhan FCM & Firestore (Gatekeeper v4.0)
+import { getMessaging, getToken } from 'firebase/messaging';
+import { doc, setDoc } from 'firebase/firestore';
+
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { getMessaging, getToken } from 'firebase/messaging';
@@ -26,6 +30,9 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+// [NEW] Inisialisasi Messaging untuk Notifikasi Push
+export const messaging = getMessaging(app);
+
 const auth = getAuth(app);
 const db = getFirestore(app);
 // [NEW SIKLUS 9] Inisialisasi FCM dengan pengaman pencegah crash di browser non-support
@@ -158,6 +165,31 @@ const [editNotif, setEditNotif] = useState<any>(null);
 
   const [copiedPattern, setCopiedPattern] = useState<{status: string, timestamp: number, dateStr: string}[] | null>(null);
   
+  // [NEW] LANGKAH C: Fungsi Pembangkit Token Otomatis (Gatekeeper v4.0)
+  const requestAndSaveFCMToken = async (userUid: string) => {
+    if (!messaging) return; // Pengaman: Abaikan jika browser tidak support
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        await navigator.serviceWorker.ready;
+
+        const token = await getToken(messaging, {
+          vapidKey: "BLMVbrj9rI1gF1uzxBnepvUxIxg1U2M3sN-pXhkVQO4Dmvshs4Gw5W9AQfAvTVBoHYGEHWvVzgDgjb711CdJaHA",
+          serviceWorkerRegistration: registration 
+        });
+
+        if (token) {
+          const userRef = doc(db, 'users', userUid);
+          await setDoc(userRef, { fcmToken: token, notifEnabled: true }, { merge: true }); // merge: true mengamankan data historis!
+          console.log("Sistem Otomatis: Token FCM Berhasil Diamankan!");
+        }
+      }
+    } catch (error) {
+      console.error("Gagal Auto-Token FCM:", error);
+    }
+  };
+
   // --- STATES JURNAL ---
   const [activeJournal, setActiveJournal] = useState<any>(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -245,7 +277,10 @@ const [editNotif, setEditNotif] = useState<any>(null);
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser); 
       setIsInitializing(false);
-      
+      // [NEW] LANGKAH D: Pelatuk FCM Otomatis Saat Login Sukses
+      if (currentUser) {
+        requestAndSaveFCMToken(currentUser.uid);
+     }
       if (!currentUser) {
          setIsUserProfileLoaded(false); 
          hasSyncedLogin.current = false; // Reset gembok jika logout

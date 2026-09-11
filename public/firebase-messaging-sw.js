@@ -1,32 +1,26 @@
-// Import script Firebase secara langsung (Versi Compat untuk Service Worker)
-importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js');
+// File: public/firebase-messaging-sw.js
+importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
-// [PENTING] Masukkan Konfigurasi Firebase Anda yang sama persis dengan yang ada di App.tsx
+// Konfigurasi Firebase Anda (Akan kita isi nanti)
 const firebaseConfig = {
-  apiKey: "AIzaSyChCsY6yUMGAE4DMVXD3lHoQRCfyw4KqYA",
-  authDomain: "trackeribadahku.firebaseapp.com",
-  projectId: "trackeribadahku",
-  storageBucket: "trackeribadahku.firebasestorage.app",
-  messagingSenderId: "741356518968",
-  appId: "1:741356518968:web:b918e6b470d36a29bbf0cd"
+  apiKey: "API_KEY_ANDA",
+  authDomain: "DOMAIN_ANDA",
+  projectId: "PROJECT_ID_ANDA",
+  storageBucket: "BUCKET_ANDA",
+  messagingSenderId: "SENDER_ID_ANDA",
+  appId: "APP_ID_ANDA"
 };
 
-// Inisialisasi Firebase App di background
 firebase.initializeApp(firebaseConfig);
-
-// Inisialisasi Messaging di background
 const messaging = firebase.messaging();
 
-// Menangkap notifikasi jika aplikasi sedang tertutup / di background
-messaging.onBackgroundMessage(function(payload) {
-  console.log('[firebase-messaging-sw.js] Menerima pesan background: ', payload);
-  
-  const notificationTitle = payload.notification.title || "Notifikasi Baru";
+messaging.onBackgroundMessage((payload) => {
+  console.log('[firebase-messaging-sw.js] Menerima pesan latar belakang ', payload);
+  const notificationTitle = payload.notification.title;
   const notificationOptions = {
     body: payload.notification.body,
-    icon: '/logo.png',
-    badge: '/logo.png' // Icon kecil di status bar Android
+    icon: '/vite.svg' // Sesuaikan dengan ikon aplikasi Anda
   };
 
   self.registration.showNotification(notificationTitle, notificationOptions);
