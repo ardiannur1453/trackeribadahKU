@@ -262,7 +262,28 @@ const [editNotif, setEditNotif] = useState<any>(null);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const todayColumnRef = useRef<HTMLTableCellElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
+// [NEW] Global ESC Listener untuk menutup seluruh pop-up/modal
+useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+         setShowSettingsModal(false);
+         setShowInfoModal(false);
+         setShowJoinModal(false);
+         setShowMyCommsModal(false);
+         setActModal(prev => ({...prev, show: false}));
+         setRoleConfirmModal(prev => ({...prev, show: false}));
+         setMembersModal(prev => ({...prev, show: false}));
+         setFullLeaderboardModal(prev => ({...prev, show: false}));
+         setViewActsModal(prev => ({...prev, show: false}));
+         setShowPillarInfo(false);
+         setMemberAnalyticsModal({show: false, user: null});
+         setShowNotifModal(false);
+         setIsViewModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
   // ==========================================
   // 1. INIT AUTH (SIKLUS 5: Cache Poisoning Fix)
   // Proses setDoc DICABUT dari sini, hanya deteksi login murni.
@@ -1830,10 +1851,16 @@ const handleViewCommActs = (comm: any) => {
         )}
 
         {/* MODAL SETTINGS */}
+        {/* MODAL SETTINGS */}
         {showSettingsModal && (
            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
-              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl relative text-center">
-                 <button onClick={() => setShowSettingsModal(false)} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl relative text-center max-h-[90vh] overflow-y-auto custom-scrollbar">
+                 
+                 {/* [FIXED] Tombol Silang Melayang (Sticky) */}
+                 <div className="sticky top-0 z-[60] flex justify-end -mt-2 -mr-2 mb-2">
+                     <button onClick={() => setShowSettingsModal(false)} className="p-2 bg-slate-100 hover:bg-red-100 hover:text-red-600 text-slate-500 rounded-full transition-colors shadow-sm border border-slate-200"><X size={20}/></button>
+                 </div>
+
                  <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
                      <Settings className="text-slate-600" size={32}/>
                  </div>
@@ -1841,6 +1868,15 @@ const handleViewCommActs = (comm: any) => {
                  <p className="text-slate-500 text-sm mb-6 border-b pb-4">Kelola data dan sesi aplikasi Anda.</p>
                  
                  <div className="space-y-6 mb-8 text-left">
+                     
+                     {/* [NEW] Deteksi Blokir Izin Notifikasi */}
+                     {typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'denied' && (
+                         <div className="bg-red-50 border border-red-200 p-4 rounded-xl shadow-sm animate-pulse">
+                             <h4 className="font-bold text-red-800 mb-1 text-[11px] flex items-center gap-1.5"><AlertTriangle size={14}/> Izin Notifikasi Diblokir!</h4>
+                             <p className="text-[10px] text-red-600 leading-relaxed">Sistem mendeteksi izin notifikasi diblokir secara paksa oleh browser. Klik <b>ikon gembok 🔒</b> di address bar (pojok kiri atas URL), ubah izin "Notifications" menjadi <b>Allow/Izinkan</b>, lalu muat ulang halaman ini.</p>
+                         </div>
+                     )}
+
                      {/* [NEW SIKLUS 9] TOMBOL AKTIVASI PUSH NOTIFIKASI */}
                      <div className="bg-purple-50 border border-purple-100 p-4 rounded-xl mb-4">
                          <h4 className="font-bold text-purple-800 mb-2 flex items-center gap-2 text-sm"><Bell size={16}/> Push Notifikasi Sistem</h4>
