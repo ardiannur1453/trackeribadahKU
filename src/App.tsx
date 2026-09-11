@@ -1,9 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-// [NEW] Import Kebutuhan FCM & Firestore (Gatekeeper v4.0)
-import { getMessaging, getToken } from 'firebase/messaging';
-import { doc, setDoc } from 'firebase/firestore';
-
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot, collection, addDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { getMessaging, getToken } from 'firebase/messaging';
@@ -30,13 +26,11 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-// [NEW] Inisialisasi Messaging untuk Notifikasi Push
-export const messaging = getMessaging(app);
-
 const auth = getAuth(app);
 const db = getFirestore(app);
-// [NEW SIKLUS 9] Inisialisasi FCM dengan pengaman pencegah crash di browser non-support
-const messaging = typeof window !== 'undefined' && 'Notification' in window ? getMessaging(app) : null;
+// [FIXED] Inisialisasi FCM Tunggal & Aman dari Browser Non-Support
+export const messaging = typeof window !== 'undefined' && 'Notification' in window ? getMessaging(app) : null;
+
 
 // ==========================================
 // HELPER & KONSTANTA
