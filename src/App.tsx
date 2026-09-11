@@ -2068,17 +2068,17 @@ const handleViewCommActs = (comm: any) => {
                          const isTargetOwner = commData?.ownerId === u.id;
                          
                          return (
-                         <div key={u.id} className="bg-slate-50 p-3 rounded-xl border flex justify-between items-center group hover:border-blue-300 transition-colors">
-                            <span className="font-bold text-sm text-slate-700 flex items-center gap-1.5 flex-wrap">
-                                {i+1}. {u.displayName || 'Anonim'}
-                                {isTargetOwner && <Crown size={12} className="text-yellow-500" title="Pemilik Grup"/>}
-                                {isTargetCoAdmin && <Shield size={12} className="text-blue-500" title="Wakil Admin"/>}
+                            <div key={u.id} className="bg-slate-50 p-3 rounded-xl border flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 group hover:border-blue-300 transition-all shadow-sm">
+                            <span className="font-bold text-sm text-slate-700 flex items-center gap-1.5 flex-1 min-w-0">
+                                <span className="truncate">{i+1}. {u.displayName || 'Anonim'}</span>
+                                {isTargetOwner && <Crown size={14} className="text-yellow-500 shrink-0" title="Pemilik Grup"/>}
+                                {isTargetCoAdmin && <Shield size={14} className="text-blue-500 shrink-0" title="Wakil Admin"/>}
                             </span>
                             
-                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity flex-wrap justify-end">
+                            <div className="flex items-center gap-1.5 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity justify-start sm:justify-end shrink-0 flex-wrap sm:flex-nowrap">
                                 {/* [FIXED POIN 4] Hak Analisa: Hanya untuk Owner & Wakil Admin */}
                                 {membersModal.isAdminView && (
-                                    <button onClick={() => { setMembersModal({...membersModal, show: false}); setMemberAnalyticsModal({show: true, user: u}); }} className="text-xs bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-blue-100">
+                                    <button onClick={() => { setMembersModal({...membersModal, show: false}); setMemberAnalyticsModal({show: true, user: u}); }} className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 px-2 py-1 rounded-md font-bold flex items-center gap-1 hover:bg-blue-100 shadow-sm transition-colors">
                                        <Activity size={12}/> Analisa
                                     </button>
                                 )}
@@ -2086,10 +2086,10 @@ const handleViewCommActs = (comm: any) => {
                                 {/* [NEW POIN 5] Hak Manajemen Eksklusif: Hanya untuk Owner / Superadmin */}
                                 {membersModal.isOwnerView && !isTargetOwner && (
                                     <>
-                                        <button onClick={() => handleToggleCoAdmin(u.id, !isTargetCoAdmin)} className={`text-xs px-3 py-1 rounded-lg font-bold flex items-center gap-1 border transition-colors ${isTargetCoAdmin ? 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100' : 'bg-purple-50 text-purple-600 border-purple-200 hover:bg-purple-100'}`}>
+                                        <button onClick={() => handleToggleCoAdmin(u.id, !isTargetCoAdmin)} className={`text-[10px] px-2 py-1 rounded-md font-bold flex items-center gap-1 border transition-colors shadow-sm ${isTargetCoAdmin ? 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100' : 'bg-purple-50 text-purple-600 border-purple-200 hover:bg-purple-100'}`}>
                                             <Shield size={12}/> {isTargetCoAdmin ? 'Copot Wakil' : 'Jadikan Wakil'}
                                         </button>
-                                        <button onClick={() => handleKickMember(u.id)} className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-red-100">
+                                        <button onClick={() => handleKickMember(u.id)} className="text-[10px] bg-red-50 text-red-600 border border-red-200 px-2 py-1 rounded-md font-bold flex items-center gap-1 hover:bg-red-100 shadow-sm transition-colors">
                                            <UserMinus size={12}/> Keluarkan
                                         </button>
                                     </>
