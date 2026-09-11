@@ -262,35 +262,47 @@ const [editNotif, setEditNotif] = useState<any>(null);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const todayColumnRef = useRef<HTMLTableCellElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-// [NEW] Global ESC Listener untuk menutup seluruh pop-up/modal
+// [UPDATED] Global ESC Listener Berhierarki (Menutup satu per satu dari lapisan teratas)
 useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-         setShowSettingsModal(false);
-         setShowInfoModal(false);
-         setShowJoinModal(false);
-         setShowMyCommsModal(false);
-         setActModal(prev => ({...prev, show: false}));
-         setRoleConfirmModal(prev => ({...prev, show: false}));
-         setMembersModal(prev => ({...prev, show: false}));
-         setFullLeaderboardModal(prev => ({...prev, show: false}));
-         setViewActsModal(prev => ({...prev, show: false}));
-         setShowPillarInfo(false);
-         setMemberAnalyticsModal({show: false, user: null});
-         setShowNotifModal(false);
-         setIsViewModalOpen(false);
-         // [FIXED] Menutup Jendela Admin & Membersihkan Data Form yang tertinggal
-         setShowAdminPanel(false);
-         setEditCommId(null); 
-         setNewCommName(''); 
-         setSelectedActs([]); 
-         setEditGlobalActId(null); 
-         setNewGlobalAct({name: '', time: '00:00', frequency: 'daily', freqConfig: ''});
+         // --- LAPIS 3: Jendela Tertinggi (Pop-up di atas pop-up) ---
+         if (roleConfirmModal.show) return setRoleConfirmModal(prev => ({...prev, show: false}));
+         if (memberAnalyticsModal.show) return setMemberAnalyticsModal({show: false, user: null});
+         if (isViewModalOpen) return setIsViewModalOpen(false);
+         if (viewActsModal.show) return setViewActsModal(prev => ({...prev, show: false}));
+         if (showPillarInfo) return setShowPillarInfo(false);
+         if (fullLeaderboardModal.show) return setFullLeaderboardModal(prev => ({...prev, show: false}));
+         if (membersModal.show) return setMembersModal(prev => ({...prev, show: false}));
+         
+         // --- LAPIS 2: Jendela Menengah ---
+         if (actModal.show) return setActModal(prev => ({...prev, show: false}));
+         if (showNotifModal) return setShowNotifModal(false);
+         if (showSettingsModal) return setShowSettingsModal(false);
+         if (showInfoModal) return setShowInfoModal(false);
+         if (showJoinModal) return setShowJoinModal(false);
+         if (showMyCommsModal) return setShowMyCommsModal(false);
+         
+         // --- LAPIS 1: Jendela Dasar (Base) ---
+         if (showAdminPanel) {
+            setShowAdminPanel(false);
+            setEditCommId(null); 
+            setNewCommName(''); 
+            setSelectedActs([]); 
+            setEditGlobalActId(null); 
+            setNewGlobalAct({name: '', time: '00:00', frequency: 'daily', freqConfig: ''});
+            return;
+         }
       }
     };
+    
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, []);
+  }, [
+    roleConfirmModal.show, memberAnalyticsModal.show, isViewModalOpen, viewActsModal.show,
+    showPillarInfo, fullLeaderboardModal.show, membersModal.show, actModal.show,
+    showNotifModal, showSettingsModal, showInfoModal, showJoinModal, showMyCommsModal, showAdminPanel
+  ]);
   // ==========================================
   // 1. INIT AUTH (SIKLUS 5: Cache Poisoning Fix)
   // Proses setDoc DICABUT dari sini, hanya deteksi login murni.
