@@ -1887,7 +1887,827 @@ const handleViewCommActs = (comm: any) => {
            </div>
         )}
 
-      
+        {/* MODAL SETTINGS */}
+        {/* MODAL SETTINGS */}
+        {showSettingsModal && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
+              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-md shadow-2xl relative text-center max-h-[90vh] overflow-y-auto custom-scrollbar">
+                 
+                 {/* [FIXED] Tombol Silang Melayang (Sticky) */}
+                 <div className="sticky top-0 z-[60] flex justify-end -mt-2 -mr-2 mb-2">
+                     <button onClick={() => setShowSettingsModal(false)} className="p-2 bg-slate-100 hover:bg-red-100 hover:text-red-600 text-slate-500 rounded-full transition-colors shadow-sm border border-slate-200"><X size={20}/></button>
+                 </div>
+
+                 <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                     <Settings className="text-slate-600" size={32}/>
+                 </div>
+                 <h2 className="text-2xl font-bold text-slate-800 mb-2">Pengaturan Akun</h2>
+                 <p className="text-slate-500 text-sm mb-6 border-b pb-4">Kelola data dan sesi aplikasi Anda.</p>
+                 
+                 <div className="space-y-6 mb-8 text-left">
+                     
+                     {/* [NEW] Deteksi Blokir Izin Notifikasi */}
+                     {typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'denied' && (
+                         <div className="bg-red-50 border border-red-200 p-4 rounded-xl shadow-sm animate-pulse">
+                             <h4 className="font-bold text-red-800 mb-1 text-[11px] flex items-center gap-1.5"><AlertTriangle size={14}/> Izin Notifikasi Diblokir!</h4>
+                             <p className="text-[10px] text-red-600 leading-relaxed">Sistem mendeteksi izin notifikasi diblokir secara paksa oleh browser. Klik <b>ikon gembok 🔒</b> di address bar (pojok kiri atas URL), ubah izin "Notifications" menjadi <b>Allow/Izinkan</b>, lalu muat ulang halaman ini.</p>
+                         </div>
+                     )}
+
+                     {/* [NEW SIKLUS 9] TOMBOL AKTIVASI PUSH NOTIFIKASI */}
+                     <div className="bg-purple-50 border border-purple-100 p-4 rounded-xl mb-4">
+                         <h4 className="font-bold text-purple-800 mb-2 flex items-center gap-2 text-sm"><Bell size={16}/> Push Notifikasi Sistem</h4>
+                         <p className="text-[10px] text-purple-600 mb-3">Aktifkan untuk menerima peringatan jadwal terlewat dan pesan broadcast dari Admin langsung ke layar Anda.</p>
+                         <button onClick={enablePushNotifications} className="w-full bg-white border border-purple-200 text-purple-700 font-bold py-2 rounded-lg hover:bg-purple-100 transition-colors text-xs flex items-center justify-center gap-1.5 shadow-sm"><Zap size={14}/> Daftarkan Perangkat Ini</button>
+                     </div>
+                     <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl">
+                         <h4 className="font-bold text-blue-800 mb-2 flex items-center gap-2 text-sm"><FileUp size={16}/> Backup & Restore</h4>
+                         <p className="text-[10px] text-blue-600 mb-3">Simpan seluruh rekam jejak Anda ke file, atau pulihkan data dari file backup sebelumnya.</p>
+                         <div className="flex gap-2">
+                            <button onClick={handleExportData} className="flex-1 bg-white border border-blue-200 text-blue-700 font-bold py-2 rounded-lg hover:bg-blue-100 transition-colors text-xs flex items-center justify-center gap-1"><FileDown size={14}/> Export Backup</button>
+                            <label className="flex-1 bg-white border border-blue-200 text-blue-700 font-bold py-2 rounded-lg hover:bg-blue-100 transition-colors text-xs flex items-center justify-center gap-1 cursor-pointer">
+                                <FileUp size={14}/> Import Restore
+                                <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImportData} />
+                            </label>
+                         </div>
+                     </div>
+                     <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl">
+                         <h4 className="font-bold text-orange-800 mb-2 flex items-center gap-2 text-sm"><RefreshCw size={16}/> Sapu Bersih (Reset)</h4>
+                         <div className="space-y-2">
+                             <button onClick={() => handleResetData('this_month')} className="w-full bg-white border border-orange-200 text-orange-700 font-bold py-2 rounded-lg hover:bg-orange-100 transition-colors text-xs">Reset Laporan Bulan Ini</button>
+                             <button onClick={() => handleResetData('last_month')} className="w-full bg-white border border-orange-200 text-orange-700 font-bold py-2 rounded-lg hover:bg-orange-100 transition-colors text-xs">Reset Laporan Bulan Lalu</button>
+                             <button onClick={() => handleResetData('all')} className="w-full bg-red-600 text-white font-black py-2 rounded-lg hover:bg-red-700 transition-colors text-xs flex items-center justify-center gap-1 mt-2"><AlertTriangle size={14}/> Mulai Baru (Reset Total)</button>
+                         </div>
+                     </div>
+                 </div>
+                 <button onClick={handleLogout} className="w-full bg-slate-800 text-white font-bold py-3 rounded-xl hover:bg-slate-900 transition-colors flex items-center justify-center gap-2"><LogOut size={18}/> Keluar Aplikasi</button>
+              </div>
+           </div>
+        )}
+
+        {/* MODAL INFO APP */}
+        {showInfoModal && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
+              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar text-left">
+                 <button onClick={() => setShowInfoModal(false)} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+                 <div className="flex items-center gap-3 mb-6">
+                    <div className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center"><img src="/logo.png" alt="Logo" className="w-8 h-8" /></div>
+                    <div>
+                        <h2 className="text-xl font-bold text-slate-800">Tracker IbadahKU</h2>
+                        <p className="text-xs text-orange-600 font-bold tracking-widest">VER 26.08.26 rev18 (Enterprise)</p>
+                    </div>
+                 </div>
+                 
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Demo Column */}
+                    <div className="bg-slate-50 border border-slate-200 p-5 rounded-2xl opacity-70 hover:opacity-100 transition-opacity">
+                       <h3 className="text-sm font-black text-slate-700 mb-1 flex items-center gap-2">👀 Akun Demo</h3>
+                       <p className="text-[9px] text-slate-500 mb-4 pb-4 border-b border-slate-200">Akses pendaftar baru.</p>
+                       <ul className="text-[10px] text-slate-600 space-y-3">
+                          <li className="flex gap-2"><Check size={12} className="text-green-500 shrink-0"/> Max 3 Aktivitas Global.</li>
+                          <li className="flex gap-2"><Check size={12} className="text-green-500 shrink-0"/> Max 1 Aktivitas Kustom.</li>
+                          <li className="flex gap-2"><Check size={12} className="text-green-500 shrink-0"/> Akses Fitur Jurnal & Analisa.</li>
+                          <li className="flex gap-2 text-slate-400 opacity-50"><X size={12} className="text-slate-400 shrink-0"/> Dilarang Gabung Grup.</li>
+                       </ul>
+                    </div>
+                    {/* Reguler Column */}
+                    <div className="bg-white border-2 border-blue-200 p-5 rounded-2xl shadow-sm">
+                       <h3 className="text-sm font-black text-blue-800 mb-1 flex items-center gap-2">👤 User Reguler</h3>
+                       <p className="text-[9px] text-blue-600 mb-4 pb-4 border-b border-blue-100">Akses dasar untuk individu aktif.</p>
+                       <ul className="text-[10px] text-slate-700 space-y-3">
+                          <li className="flex gap-2"><Check size={12} className="text-blue-500 shrink-0"/> Input aktivitas pribadi Unlimited.</li>
+                          <li className="flex gap-2"><Check size={12} className="text-blue-500 shrink-0"/> Gabung ke komunitas (Grup).</li>
+                          <li className="flex gap-2"><Check size={12} className="text-blue-500 shrink-0"/> Penjadwalan aktivitas berulang.</li>
+                          <li className="flex gap-2"><Check size={12} className="text-blue-500 shrink-0"/> Podium Leaderboard Interaktif.</li>
+                          <li className="flex gap-2 text-slate-400 opacity-50"><X size={12} className="text-slate-400 shrink-0"/> Buat Grup / Admin Dashboard.</li>
+                       </ul>
+                    </div>
+                    {/* Premium Column */}
+                    <div className="bg-gradient-to-b from-orange-50 to-white border-2 border-orange-300 p-5 rounded-2xl shadow-md relative">
+                       <div className="absolute top-0 right-0 bg-orange-500 text-white text-[8px] font-black px-2 py-1 rounded-bl-lg rounded-tr-xl uppercase tracking-widest">Premium</div>
+                       <h3 className="text-sm font-black text-orange-800 mb-1 flex items-center gap-2">👑 Admin / Leader</h3>
+                       <p className="text-[9px] text-orange-600 mb-4 pb-4 border-b border-orange-200">Kontrol penuh tim & komunitas.</p>
+                       <ul className="text-[10px] text-orange-800 space-y-3 font-medium">
+                          <li className="flex gap-2"><Check size={12} className="text-orange-600 shrink-0"/> Semua fitur Reguler terbuka.</li>
+                          <li className="flex gap-2"><Check size={12} className="text-orange-600 shrink-0"/> Buat Komunitas & Kustomisasi.</li>
+                          <li className="flex gap-2"><Check size={12} className="text-orange-600 shrink-0"/> Akses Eksklusif Admin Dashboard.</li>
+                          <li className="flex gap-2"><Check size={12} className="text-orange-600 shrink-0"/> Broadcast Share Jurnal ke Tim.</li>
+                          <li className="flex gap-2"><Check size={12} className="text-orange-600 shrink-0"/> Fitur 'Kick' anggota dari grup.</li>
+                       </ul>
+                    </div>
+                 </div>
+                 
+                 <div className="mt-8 pt-6 border-t border-slate-100 flex justify-center">
+                    <a href="https://wa.me/6285117351453" target="_blank" rel="noreferrer" className="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold py-3 px-8 rounded-xl shadow-[0_5px_15px_rgba(16,185,129,0.4)] hover:shadow-lg hover:-translate-y-1 transition-all flex items-center gap-2 text-sm border border-green-400">
+                        <Crown size={18}/> Upgrade ke Reguler / Premium via WhatsApp
+                    </a>
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* MODAL DAFTAR KOMUNITAS AKTIF & SIKLUS 3: Opt #3 OTONOMI LEAVE GROUP */}
+        {showMyCommsModal && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative text-left">
+                 <button onClick={() => setShowMyCommsModal(false)} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+                 <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><Users className="text-purple-500"/> Daftar Komunitas Aktif</h2>
+                 <p className="text-sm font-semibold text-slate-500 mb-6 border-b pb-4">Grup yang Anda ikuti saat ini</p>
+                 <div className="max-h-80 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+                     {joinedCommunityIds.map(id => {
+                         const c = allCommunities.find(x => x.id === id);
+                         if(!c) return null;
+                         return (
+                             <div key={id} className="bg-slate-50 p-3 rounded-xl border flex justify-between items-center group hover:border-purple-300 transition-colors shadow-sm">
+                                <div className="flex flex-col items-start text-left flex-1 pr-2">
+                                    <span className="font-bold text-sm text-slate-700 leading-snug">{c.name}</span>
+                                    <button onClick={() => handleViewCommActs(c)} className="text-[10px] font-black bg-purple-100 hover:bg-purple-200 text-purple-700 px-2 py-0.5 mt-1 rounded w-max flex items-center gap-1 transition-colors border border-purple-200 shadow-sm cursor-pointer">
+    <Eye size={10}/> {c.activities?.length || 0} Aktivitas
+</button>
+                                </div>
+                                <button onClick={() => handleLeaveCommunity(id)} className="text-red-500 hover:text-red-700 bg-white border border-red-200 hover:bg-red-50 px-3 py-2 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm shrink-0" title="Keluar dari Grup">
+                                    <LogOut size={14}/>
+                                    <span className="text-[10px] font-bold">Keluar</span>
+                                </button>
+                             </div>
+                         )
+                     })}
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* MODAL ROLE CONFIRM */}
+        {roleConfirmModal.show && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl relative text-center">
+                 <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                     <Shield className="text-orange-600" size={32}/>
+                 </div>
+                 <h2 className="text-xl font-bold text-slate-800 mb-2">Konfirmasi Perubahan</h2>
+                 <p className="text-slate-500 text-sm mb-6">Yakin ingin mengubah status <b>{roleConfirmModal.targetUser?.displayName}</b> menjadi <b>{roleConfirmModal.targetRole.toUpperCase()}</b>?</p>
+                 <div className="flex gap-3">
+                    <button onClick={() => setRoleConfirmModal({show:false, targetUser:null, targetRole:''})} className="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-200">Batal</button>
+                    <button onClick={executeRoleChange} className="flex-1 bg-orange-600 text-white font-bold py-3 rounded-xl hover:bg-orange-700">Ya, Ubah</button>
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* MODAL LIHAT/MANAGE MEMBER */}
+        {membersModal.show && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative text-left">
+                 <button onClick={() => setMembersModal({show:false, commId:'', commName:'', isAdminView: false})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+                 <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><Users className="text-blue-500"/> Anggota Grup</h2>
+                 <p className="text-sm font-semibold text-slate-500 mb-6 border-b pb-4">{membersModal.commName}</p>
+                 <div className="max-h-80 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                 {getCommunityMembersFull(membersModal.commId).map((u, i) => {
+                         const commData = allCommunities.find(c => c.id === membersModal.commId);
+                         const isTargetCoAdmin = commData?.coAdmins?.includes(u.id);
+                         const isTargetOwner = commData?.ownerId === u.id;
+                         
+                         return (
+                         <div key={u.id} className="bg-slate-50 p-3 rounded-xl border flex justify-between items-center group hover:border-blue-300 transition-colors">
+                            <span className="font-bold text-sm text-slate-700 flex items-center gap-1.5 flex-wrap">
+                                {i+1}. {u.displayName || 'Anonim'}
+                                {isTargetOwner && <Crown size={12} className="text-yellow-500" title="Pemilik Grup"/>}
+                                {isTargetCoAdmin && <Shield size={12} className="text-blue-500" title="Wakil Admin"/>}
+                            </span>
+                            
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity flex-wrap justify-end">
+                                {/* [FIXED POIN 4] Hak Analisa: Hanya untuk Owner & Wakil Admin */}
+                                {membersModal.isAdminView && (
+                                    <button onClick={() => { setMembersModal({...membersModal, show: false}); setMemberAnalyticsModal({show: true, user: u}); }} className="text-xs bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-blue-100">
+                                       <Activity size={12}/> Analisa
+                                    </button>
+                                )}
+                                
+                                {/* [NEW POIN 5] Hak Manajemen Eksklusif: Hanya untuk Owner / Superadmin */}
+                                {membersModal.isOwnerView && !isTargetOwner && (
+                                    <>
+                                        <button onClick={() => handleToggleCoAdmin(u.id, !isTargetCoAdmin)} className={`text-xs px-3 py-1 rounded-lg font-bold flex items-center gap-1 border transition-colors ${isTargetCoAdmin ? 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100' : 'bg-purple-50 text-purple-600 border-purple-200 hover:bg-purple-100'}`}>
+                                            <Shield size={12}/> {isTargetCoAdmin ? 'Copot Wakil' : 'Jadikan Wakil'}
+                                        </button>
+                                        <button onClick={() => handleKickMember(u.id)} className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-red-100">
+                                           <UserMinus size={12}/> Keluarkan
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                         </div>
+                     )})}
+                     {getCommunityMembersFull(membersModal.commId).length === 0 && <p className="text-center text-sm text-slate-400">Belum ada anggota.</p>}
+                 </div>
+              </div>
+           </div>
+        )}
+        
+        {/* MODAL FULL LEADERBOARD */}
+        {fullLeaderboardModal.show && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[130] p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative text-left">
+                 <button onClick={() => setFullLeaderboardModal({show:false, commName:'', boardData: []})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+                 <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><ListOrdered className="text-blue-500"/> Peringkat Lengkap</h2>
+                 <p className="text-sm font-semibold text-slate-500 mb-6 border-b pb-4">{fullLeaderboardModal.commName}</p>
+                 <div className="max-h-80 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                     {fullLeaderboardModal.boardData.map((u, i) => (
+                         <div key={i} className={`flex items-center justify-between p-3 rounded-xl border ${i===0?'bg-yellow-50 border-yellow-200':i===1?'bg-slate-100 border-slate-300':i===2?'bg-orange-50 border-orange-200':'bg-white border-slate-100'}`}>
+                            <div className="flex items-center gap-3">
+                                <span className={`font-black text-sm w-6 text-center ${i===0?'text-yellow-600':i===1?'text-slate-600':i===2?'text-orange-700':'text-slate-400'}`}>{i+1}</span>
+                                <span className="font-bold text-sm text-slate-700 truncate max-w-[180px]">{u.name}</span>
+                            </div>
+                            <span className="font-black text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded">{u.score}%</span>
+                         </div>
+                     ))}
+                     {fullLeaderboardModal.boardData.length === 0 && <p className="text-center text-sm text-slate-400">Belum ada data kompetisi.</p>}
+                 </div>
+              </div>
+           </div>
+        )}
+
+{/* [NEW SIKLUS 6] MODAL EDUKASI 4 PILAR DISIPLIN */}
+{showPillarInfo && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[140] p-4">
+              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-3xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar text-left">
+                 <button onClick={() => setShowPillarInfo(false)} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-colors"><X size={20}/></button>
+                 <h2 className="text-xl font-black text-slate-800 mb-2 flex items-center gap-2"><Shield className="text-blue-500"/> Karakter Disiplin</h2>
+                 <p className="text-sm font-medium text-slate-500 mb-6 border-b border-slate-100 pb-4">Makna psikologis di balik metrik integritas dan konsistensi Anda.</p>
+                 
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-blue-50 border border-blue-100 p-5 rounded-2xl">
+                        <h4 className="font-black text-blue-800 mb-1 flex items-center gap-2"><Target size={16}/> Akuntabilitas <span className="text-xs font-semibold text-blue-600 font-normal">(Keberanian Merespons)</span></h4>
+                        <div className="mt-3 text-xs text-slate-700 space-y-2 leading-relaxed">
+                           <p><strong className="text-slate-800 font-bold">Apa yang diukur:</strong> Persentase kotak laporan yang direspons (baik "Selesai" maupun "Terlewat") dibandingkan dengan total target jadwal yang sudah berlalu.</p>
+                           <p><strong className="text-slate-800 font-bold">Makna Psikologis:</strong> Menguji kejujuran. Sistem lebih menghargai keberanian Anda mengakui kegagalan daripada lari dari kenyataan dengan membiarkannya kosong (ghosting).</p>
+                        </div>
+                    </div>
+                    <div className="bg-purple-50 border border-purple-100 p-5 rounded-2xl">
+                        <h4 className="font-black text-purple-800 mb-1 flex items-center gap-2"><Clock size={16}/> Integritas Waktu <span className="text-xs font-semibold text-purple-600 font-normal">(Ketepatan Lapor)</span></h4>
+                        <div className="mt-3 text-xs text-slate-700 space-y-2 leading-relaxed">
+                           <p><strong className="text-slate-800 font-bold">Apa yang diukur:</strong> Rasio kedisiplinan melaporkan aktivitas tepat waktu pada Hari-H, bukan "dirapel" berhari-hari kemudian.</p>
+                           <p><strong className="text-slate-800 font-bold">Makna Psikologis:</strong> Mengukur kualitas manajemen waktu. Menunda evaluasi menunjukkan integritas yang rapuh dan mengurangi kualitas refleksi diri.</p>
+                        </div>
+                    </div>
+                    <div className="bg-orange-50 border border-orange-100 p-5 rounded-2xl">
+                        <h4 className="font-black text-orange-800 mb-1 flex items-center gap-2"><Flame size={16}/> Daily Streak <span className="text-xs font-semibold text-orange-600 font-normal">(Konsistensi Harian)</span></h4>
+                        <div className="mt-3 text-xs text-slate-700 space-y-2 leading-relaxed">
+                           <p><strong className="text-slate-800 font-bold">Apa yang diukur:</strong> Rantai hari beruntun di mana Anda berhasil menuntaskan minimal satu target aktivitas tanpa pernah terputus (bolong).</p>
+                           <p><strong className="text-slate-800 font-bold">Makna Psikologis:</strong> Metrik daya tahan (endurance). Mempertahankan api streak melatih kegigihan mental agar Anda memastikan selalu ada "kemenangan kecil" tiap harinya.</p>
+                        </div>
+                    </div>
+                    <div className="bg-green-50 border border-green-100 p-5 rounded-2xl">
+                        <h4 className="font-black text-green-800 mb-1 flex items-center gap-2"><Heart size={16}/> Kesehatan Disiplin <span className="text-xs font-semibold text-green-600 font-normal">(Health Points)</span></h4>
+                        <div className="mt-3 text-xs text-slate-700 space-y-2 leading-relaxed">
+                           <p><strong className="text-slate-800 font-bold">Apa yang diukur:</strong> Skor kumulatif "nyawa" (0 - 100). Akan berkurang jika Anda melakukan pelanggaran seperti ghosting absensi atau merapel laporan.</p>
+                           <p><strong className="text-slate-800 font-bold">Makna Psikologis:</strong> Memberikan konsekuensi virtual atas kelalaian. Mempertahankan 100 HP melambangkan keutuhan komitmen dan disiplin yang sempurna tanpa cacat.</p>
+                        </div>
+                    </div>
+                 </div>
+              </div>
+           </div>
+        )}
+
+{/* [NEW SIKLUS 6] MODAL RINCIAN AKTIVITAS KOMUNITAS */}
+{viewActsModal.show && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[140] p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative text-left">
+                 <button onClick={() => setViewActsModal({show:false, commName:'', activities: []})} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+                 <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><Target className="text-orange-500"/> Aktivitas Wajib</h2>
+                 <p className="text-sm font-semibold text-slate-500 mb-6 border-b pb-4">{viewActsModal.commName}</p>
+                 <div className="max-h-80 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                     {viewActsModal.activities.map((a, i) => (
+                         <div key={i} className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex justify-between items-center group hover:border-orange-300 transition-colors shadow-sm">
+                            <div className="flex flex-col items-start text-left min-w-0">
+                                <span className="font-bold text-sm text-slate-700">{a.name}</span>
+                                <span className="text-[9px] text-slate-400 font-bold uppercase mt-0.5 tracking-widest">{getFreqLabel(a.frequency)}</span>
+                            </div>
+                            <span className="text-xs font-black text-orange-600 bg-orange-100 border border-orange-200 px-2 py-1 rounded shadow-sm">{a.time}</span>
+                         </div>
+                     ))}
+                     {viewActsModal.activities.length === 0 && <p className="text-center text-sm text-slate-400">Tidak ada aktivitas wajib.</p>}
+                 </div>
+              </div>
+           </div>
+        )}
+
+        {/* MODAL JOIN KOMUNITAS */}
+        {showJoinModal && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative text-center">
+                 <button onClick={() => setShowJoinModal(false)} className="absolute top-4 right-4 p-2 text-slate-400 rounded-full"><X size={20}/></button>
+                 <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                     <KeyRound size={32} className="text-purple-600"/>
+                 </div>
+                 <h2 className="text-2xl font-bold text-slate-800 mb-2">Gabung Grup</h2>
+                 <input type="text" value={joinCodeInput} onChange={e => setJoinCodeInput(e.target.value.toLowerCase())} placeholder="Cth: tafkir_x8j9" className="w-full text-center text-lg font-bold bg-slate-50 border-2 border-slate-200 rounded-xl p-4 mb-6 outline-none focus:border-purple-500 focus:bg-purple-50 transition-all" />
+                 <button onClick={handleJoinCommunity} className="w-full bg-purple-600 text-white font-bold py-3.5 rounded-xl hover:bg-purple-700 shadow-lg">Gabung Sekarang</button>
+              </div>
+           </div>
+        )}
+
+        {/* MODAL BUAT AKTIVITAS PRIBADI (Linked System) */}
+        {actModal.show && (
+           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+              <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar text-left">
+                 <button onClick={() => setActModal({...actModal, show: false})} className="absolute top-4 right-4 p-2 text-slate-400 hover:bg-slate-100 rounded-full"><X size={20}/></button>
+                 <h2 className="text-xl font-bold text-slate-800 mb-4">{actModal.mode === 'add' ? 'Tambah Komitmen Pribadi' : 'Edit Komitmen Pribadi'}</h2>
+                 
+                 {actModal.mode === 'add' && (
+                     <div className="flex bg-slate-100 p-1 rounded-xl mb-6">
+                        <button onClick={()=>setActModal({...actModal, tab:'global', id: null, name:'', time:'00:00', frequency: 'daily', freqConfig: ''})} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${actModal.tab==='global'?'bg-white shadow text-blue-600':'text-slate-500'}`}>Pilih dari Master Global</button>
+                        <button onClick={()=>setActModal({...actModal, tab:'custom', id: null, name:'', time:'00:00', frequency: 'daily', freqConfig: ''})} className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${actModal.tab==='custom'?'bg-white shadow text-blue-600':'text-slate-500'}`}>Buat Kustom Sendiri</button>
+                     </div>
+                 )}
+
+                 <div className="space-y-4 mb-6">
+                    {actModal.tab === 'global' && actModal.mode === 'add' ? (
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">Pilih Aktivitas Global</label>
+                            <select value={actModal.id || ''} onChange={e => {
+                                const selected = globalActivities.find(g => g.docId === e.target.value);
+                                if(selected) setActModal({...actModal, id: selected.docId, name: selected.name, time: selected.time, frequency: selected.frequency || 'daily', freqConfig: selected.freqConfig || ''});
+                            }} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:border-blue-500 outline-none font-medium text-sm">
+                                <option value="" disabled>Pilih Aktivitas...</option>
+                                {globalActivities.filter(g => !personalActivities.find(p => p.id === g.docId)).map(g => (
+                                    <option key={g.docId} value={g.docId}>{g.name}</option>
+                                ))}
+                            </select>
+                            <p className="text-[10px] text-slate-500 mt-2 italic">*Jika grup Anda juga mewajibkan aktivitas ini, pelaporan akan terhubung (Linked) otomatis.</p>
+                        </div>
+                    ) : (
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">Nama Aktivitas</label>
+                            <input type="text" value={actModal.name} onChange={e => setActModal({...actModal, name: e.target.value})} placeholder="Cth: Olahraga Pagi" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:border-blue-500 outline-none font-medium text-sm" disabled={actModal.tab === 'global'}/>
+                            {actModal.tab === 'global' && <p className="text-[10px] text-orange-500 mt-1 italic">*Nama Master Global tidak bisa diubah di sini.</p>}
+                        </div>
+                    )}
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="col-span-2 sm:col-span-1">
+                            <label className="block text-xs font-bold text-slate-600 mb-1">Jam Target</label>
+                            <input type="time" value={actModal.time} onChange={e => setActModal({...actModal, time: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:border-blue-500 outline-none" />
+                        </div>
+                        <div className="col-span-2 sm:col-span-1">
+                            <label className="block text-xs font-bold text-slate-600 mb-1">Pengulangan</label>
+                            <select value={actModal.frequency} onChange={e => setActModal({...actModal, frequency: e.target.value, freqConfig: ''})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 focus:border-blue-500 outline-none text-xs font-medium cursor-pointer">
+                                <option value="daily">Daily (Harian)</option>
+                                <option value="weekly">Weekly (Mingguan)</option>
+                                <option value="biweekly">Bi-Weekly (2-Mingguan)</option>
+                                <option value="monthly">Monthly (Bulanan)</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    {/* FREQ CONFIG INPUTS */}
+                    {actModal.frequency === 'weekly' && (
+                       <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-2">Pilih Hari Wajib</label>
+                          <div className="flex gap-1.5 justify-between">
+                             {WEEKDAYS_SHORT.map((day, idx) => {
+                                const isSel = actModal.freqConfig.split(',').includes(String(idx));
+                                return (
+                                   <button key={idx} onClick={() => {
+                                      let days = actModal.freqConfig ? actModal.freqConfig.split(',') : [];
+                                      if(days.includes(String(idx))) days = days.filter(d => d !== String(idx));
+                                      else days.push(String(idx));
+                                      setActModal({...actModal, freqConfig: days.join(',')});
+                                   }} className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-colors ${isSel ? 'bg-blue-600 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-500'}`}>{day}</button>
+                                );
+                             })}
+                          </div>
+                       </div>
+                    )}
+                    {actModal.frequency === 'monthly' && (
+                       <div className="mt-2">
+                           <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Tentukan Tanggal Wajib</label>
+                           <input type="text" placeholder="Cth: 1, 15, 28" value={actModal.freqConfig} onChange={e => setActModal({...actModal, freqConfig: e.target.value.replace(/[^0-9, ]/g, '')})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:border-blue-500 outline-none" />
+                           <p className="text-[9px] text-slate-400 mt-1 italic">Pisahkan dengan koma jika lebih dari satu tanggal.</p>
+                       </div>
+                    )}
+                    {actModal.frequency === 'biweekly' && (
+                       <div className="mt-2">
+                           <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Tanggal Mulai (Anchor Date)</label>
+                           <input type="date" value={actModal.freqConfig} onChange={e => setActModal({...actModal, freqConfig: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:border-blue-500 outline-none" />
+                           <p className="text-[9px] text-slate-400 mt-1 italic">Sistem akan membuka kolom otomatis setiap kelipatan 14 hari dari tanggal ini.</p>
+                       </div>
+                    )}
+
+                 </div>
+                 <button onClick={saveActivity} className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 shadow-lg transition-transform hover:-translate-y-0.5">Simpan ke Tabel</button>
+              </div>
+           </div>
+        )}
+
+        {/* ================= ADMIN DASHBOARD ================= */}
+        {showAdminPanel && isAdmin && (
+           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+              <div className="bg-white rounded-3xl p-6 md:p-8 w-full max-w-6xl shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar text-left">
+                 <button onClick={() => {setShowAdminPanel(false); setEditCommId(null); setNewCommName(''); setSelectedActs([]); setEditGlobalActId(null); setNewGlobalAct({name: '', time: '00:00', frequency: 'daily', freqConfig: ''});}} className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full"><X size={20}/></button>
+                 <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-3"><Shield className="text-blue-500"/> {isSuperAdmin ? 'Super Admin Dashboard' : 'Admin Dashboard'}</h2>
+                 <p className="text-sm text-slate-500 mb-6 border-b pb-4">Kelola Komunitas Gamifikasi dan Pantau Anggota Anda.</p>
+                 
+                 <div className="flex border-b border-slate-200 mb-6 gap-6 overflow-x-auto custom-scrollbar pb-1">
+                    <button onClick={()=>setAdminTab('users')} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap ${adminTab === 'users' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Pantau Anggota</button>
+                    <button onClick={()=>{setAdminTab('communities'); setEditCommId(null); setNewCommName(''); setSelectedActs([]);}} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap ${adminTab === 'communities' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Kelola Komunitas & Kode Join</button>
+                    {isSuperAdmin && <button onClick={()=>{setAdminTab('globalacts'); setEditGlobalActId(null); setNewGlobalAct({name: '', time: '00:00', frequency: 'daily', freqConfig: ''});}} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap ${adminTab === 'globalacts' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Master Ibadah Global</button>}
+                    {isSuperAdmin && <button onClick={()=>setAdminTab('characters')} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap ${adminTab === 'characters' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Top Karakter Disiplin</button>}
+                    <button onClick={()=>setAdminTab('notifs')} className={`pb-3 font-bold transition-all border-b-2 whitespace-nowrap flex items-center gap-1.5 ${adminTab === 'notifs' ? 'text-orange-600 border-orange-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}><Megaphone size={14}/> Broadcast Notifikasi</button>
+                 </div>
+
+                 {adminTab === 'users' ? (
+                    <div>
+                       <div className="flex flex-col sm:flex-row justify-between gap-4 mb-4">
+                          <div className="relative w-full sm:w-64">
+                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                             <input type="text" placeholder="Cari nama atau email..." value={adminSearch} onChange={e => setAdminSearch(e.target.value)} className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-blue-500"/>
+                          </div>
+                          <select value={adminSort} onChange={(e:any) => setAdminSort(e.target.value)} className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none font-bold text-slate-600 cursor-pointer">
+                             <option value="newest">Terakhir Login (Terbaru)</option>
+                             <option value="oldest">Terakhir Login (Terlama)</option>
+                             <option value="az">Nama (A-Z)</option>
+                             <option value="za">Nama (Z-A)</option>
+                             <option value="role">Hak Akses (Role)</option>
+                          </select>
+                       </div>
+                       <div className="overflow-x-auto border border-slate-100 rounded-xl custom-scrollbar">
+                          <table className="w-full text-left text-sm min-w-[900px]">
+                             <thead className="bg-slate-50 text-slate-600 border-b border-slate-100">
+                                <tr>
+                                    <th className="p-4 font-bold">Nama & Komunitas</th>
+                                    <th className="p-4 font-bold">Email</th>
+                                    <th className="p-4 font-bold">Status (Aktif/Login)</th>
+                                    {isSuperAdmin && <th className="p-4 font-bold text-center">Limit Grup</th>}
+                                    {isSuperAdmin && <th className="p-4 font-bold text-center">Hak Akses</th>}
+                                </tr>
+                             </thead>
+                             <tbody className="divide-y divide-slate-50">
+                                {filteredAdminUsers.map((u) => {
+                                   let actStatus = <span className="text-slate-400 text-xs italic">Belum Aktif</span>;
+                                   if (u.lastActivity || u.lastLogin) {
+                                      const timestamp = u.lastActivity || u.lastLogin;
+                                      const diffDays = Math.floor((new Date().getTime() - timestamp) / (1000 * 60 * 60 * 24));
+                                      if (diffDays > 2) {
+                                          actStatus = <span className="text-red-600 font-medium text-[11px]"><span className="font-bold">⚠️ Pasif {diffDays} Hari</span><br/><span className="text-[9px]">{formatLastLogin(timestamp)}</span></span>;
+                                      } else {
+                                          actStatus = <span className="text-green-600 font-medium text-[11px]"><span className="font-bold">🟢 Aktif</span><br/><span className="text-[9px]">{formatLastLogin(timestamp)}</span></span>;
+                                      }
+                                   }
+                                   
+                                   const usrComms = u.joinedCommunities?.map((id:string) => allCommunities.find(c=>c.id===id)?.name).filter(Boolean).join(', ') || 'Tidak ada';
+                                   const isUAdmin = u.role === 'admin' || u.role === 'superadmin';
+
+                                   return (
+                                   <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
+                                      <td className="p-4">
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                             <p className="font-bold text-slate-800">{u.displayName || 'Anonim'}</p>
+                                             {u.role === 'superadmin' && <span className="text-[8px] bg-red-100 text-red-700 px-1 rounded uppercase font-black">Super</span>}
+                                             {u.role === 'admin' && <span className="text-[8px] bg-orange-100 text-orange-700 px-1 rounded uppercase font-black">Admin</span>}
+                                             {u.role === 'demo' && <span className="text-[8px] bg-slate-200 text-slate-500 px-1 rounded uppercase font-black">Demo</span>}
+                                             <button onClick={() => setMemberAnalyticsModal({show: true, user: u})} className="ml-1 text-[9px] bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 px-2 py-0.5 rounded shadow-sm flex items-center gap-1 font-bold transition-colors"><Activity size={10}/> Lihat Analisa</button>
+                                          </div>
+                                          <p className="text-[9px] font-semibold text-slate-500 uppercase mt-1">Komunitas: <span className="text-blue-600">{usrComms}</span></p>
+                                      </td>
+                                      <td className="p-4 text-slate-500 text-xs">{u.email || '-'}</td>
+                                      <td className="p-4">{actStatus}</td>
+                                      {isSuperAdmin && (
+                                         <td className="p-4 text-center">
+                                            {isUAdmin ? (
+                                                <select value={u.communityLimit || 1} onChange={(e)=>handleUpdateCommunityLimit(u.id, Number(e.target.value))} className="bg-slate-50 border border-slate-200 text-xs px-2 py-1.5 rounded outline-none font-bold text-slate-700 cursor-pointer focus:border-blue-500">
+                                                   <option value={1}>1 Grup</option><option value={3}>3 Grup</option><option value={5}>5 Grup</option><option value={999}>Unlimited</option>
+                                                </select>
+                                            ) : (
+                                                <span className="text-[10px] text-slate-400 font-bold bg-slate-100 px-2 py-1 rounded">Bukan Admin</span>
+                                            )}
+                                         </td>
+                                      )}
+                                      {isSuperAdmin && (
+                                         <td className="p-4 text-center">
+                                            <select 
+                                                value={u.role || 'demo'} 
+                                                onChange={(e) => setRoleConfirmModal({ show: true, targetUser: u, targetRole: e.target.value })} 
+                                                disabled={u.email === 'coachardi1453@gmail.com'} 
+                                                className={`bg-white border text-[10px] font-bold uppercase transition-colors shadow-sm px-2 py-1.5 rounded cursor-pointer outline-none ${u.role === 'superadmin' ? 'border-red-300 text-red-700' : u.role === 'admin' ? 'border-orange-300 text-orange-700' : u.role === 'user' ? 'border-blue-300 text-blue-700' : 'border-slate-300 text-slate-500'}`}
+                                            >
+                                                <option value="demo">Demo</option>
+                                                <option value="user">Reguler</option>
+                                                <option value="admin">Admin</option>
+                                                {u.email === 'coachardi1453@gmail.com' && <option value="superadmin">Superadmin</option>}
+                                            </select>
+                                         </td>
+                                      )}
+                                   </tr>
+                                )})}
+                                {filteredAdminUsers.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-slate-400 italic">Tidak ada anggota ditemukan.</td></tr>}
+                             </tbody>
+                          </table>
+                       </div>
+                    </div>
+                 ) : adminTab === 'communities' ? (
+                    <div>
+                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 h-max">
+                              <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">{editCommId ? <><Edit3 size={18}/> Edit Komunitas</> : <><Plus size={18}/> Buat Komunitas Baru</>}</h3>
+                              <input type="text" placeholder="Nama Komunitas (Cth: Tim Sales MIP)" value={newCommName} onChange={e => setNewCommName(e.target.value)} className="w-full bg-white border border-slate-200 rounded-xl p-3 mb-4 text-sm focus:border-blue-500 outline-none font-bold" />
+                              <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-widest text-left w-full">Pilih & Atur Jam (Master Global)</p>
+                              <div className="space-y-2 h-[350px] overflow-y-auto bg-white p-3 rounded-xl border border-slate-200 mb-4 custom-scrollbar">
+                                 {globalActivities.map(act => {
+                                    const isSel = selectedActs.find(a => a.id === act.docId);
+                                    return (
+                                    <div key={act.docId} className={`flex items-center justify-between p-2 rounded-lg border transition-colors ${isSel ? 'bg-blue-50 border-blue-200' : 'border-transparent hover:bg-slate-50'}`}>
+                                       <label className="flex items-center gap-3 cursor-pointer flex-1">
+                                          <input type="checkbox" checked={!!isSel} onChange={() => { if(isSel) setSelectedActs(selectedActs.filter(a=>a.id!==act.docId)); else setSelectedActs([...selectedActs, {id:act.docId, time:act.time}]); }} className="w-4 h-4 rounded text-blue-600" />
+                                          <div className="flex flex-col items-start text-left">
+                                             <span className="text-sm font-semibold text-slate-700">{act.name}</span>
+                                             <span className="text-[9px] text-slate-400 font-medium uppercase tracking-widest">{getFreqLabel(act.frequency)}</span>
+                                          </div>
+                                       </label>
+                                       {isSel && <input type="time" value={isSel.time} onChange={(e) => setSelectedActs(selectedActs.map(a => a.id===act.docId ? {...a, time:e.target.value} : a))} className="bg-white border border-blue-200 text-xs px-2 py-1 rounded outline-none text-blue-700 font-bold shadow-sm" />}
+                                    </div>
+                                 )})}
+                              </div>
+                              <div className="flex gap-2">
+                                 {editCommId && <button onClick={()=>{setEditCommId(null); setNewCommName(''); setSelectedActs([]);}} className="px-4 bg-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-300">Batal</button>}
+                                 <button onClick={handleSaveCommunity} className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 shadow-md transition-colors">{editCommId ? 'Simpan Perubahan' : 'Generate Kode & Buat'}</button>
+                              </div>
+                           </div>
+                           
+                           {/* TAB KELOLA KOMUNITAS KANAN */}
+                           <div>
+                              <div className="flex border-b border-slate-200 mb-4 gap-4">
+                                  <button onClick={() => setAdminCommTab('my')} className={`pb-2 font-bold text-sm border-b-2 transition-colors ${adminCommTab === 'my' ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Komunitas Anda</button>
+                                  {isSuperAdmin && (
+                                      <button onClick={() => setAdminCommTab('others')} className={`pb-2 font-bold text-sm border-b-2 transition-colors ${adminCommTab === 'others' ? 'text-red-600 border-red-600' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>Komunitas Admin Lain</button>
+                                  )}
+                              </div>
+
+                              {adminCommTab === 'my' ? (
+                                  <div className="space-y-4 max-h-[550px] overflow-y-auto pr-2 custom-scrollbar">
+                                     <p className="text-xs font-bold text-slate-500 mb-2 bg-slate-100 px-3 py-1.5 rounded-lg inline-block text-left w-full">Limit: {allCommunities.filter(c => c.ownerId === user.uid).length} / {isSuperAdmin ? 'Unlimited' : myCommunityLimit}</p>
+                                     {allCommunities.filter(c => c.ownerId === user.uid).map(c => (
+                                        <div key={c.id} className="bg-white border border-slate-200 p-5 rounded-2xl flex flex-col xl:flex-row justify-between group hover:border-blue-300 transition-colors shadow-sm gap-4 items-start text-left">
+                                           <div className="flex flex-col items-start w-full xl:w-auto flex-1">
+                                              <div className="flex items-center gap-2 mb-1 w-full justify-start">
+                                                  <p className="font-black text-slate-800 text-lg">{c.name}</p>
+                                                  <button onClick={()=>{setEditCommId(c.id); setNewCommName(c.name); setSelectedActs(c.activities||[]);}} className="text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 p-1.5 rounded-lg transition-colors"><Edit3 size={14}/></button>
+                                                  <button onClick={()=>handleDeleteCommunity(c.id)} className="text-slate-400 hover:text-red-600 bg-slate-50 hover:bg-red-50 p-1.5 rounded-lg transition-colors"><Trash2 size={14}/></button>
+                                              </div>
+                                              <button onClick={() => handleViewCommActs(c)} className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md font-bold uppercase mb-3 text-left flex items-center gap-1.5 transition-colors shadow-sm w-max cursor-pointer">
+    <Eye size={12}/> {c.activities?.length || 0} Aktivitas Wajib
+</button>
+                                              <button onClick={() => setMembersModal({show:true, commId: c.id, commName: c.name, isAdminView: true, isOwnerView: true})} className="text-xs bg-slate-50 border border-slate-200 text-slate-600 font-bold px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-100 transition-colors self-start w-max">
+                                                  <Users size={14}/> Kelola {getCommunityMembersFull(c.id).length} Anggota
+                                              </button>
+                                           </div>
+                                           <div className="text-left xl:text-right mt-2 xl:mt-0 flex flex-col items-start xl:items-end w-full xl:w-auto">
+                                              <p className="text-[9px] text-slate-400 font-bold uppercase mb-1">Kode Join</p>
+                                              <div className="flex items-center gap-2 bg-blue-50 px-3 py-2 rounded-xl border border-blue-100 w-max">
+                                                 <span className="font-black text-blue-700 tracking-widest text-lg">{c.joinCode}</span>
+                                                 <button onClick={()=>{navigator.clipboard.writeText(c.joinCode); showToast("Disalin!");}} className="text-blue-400 hover:text-blue-600 bg-white p-1 rounded shadow-sm"><Copy size={14}/></button>
+                                              </div>
+                                           </div>
+                                        </div>
+                                     ))}
+                                     {allCommunities.filter(c => c.ownerId === user.uid).length === 0 && <p className="text-sm text-center py-8 text-slate-400 italic border-2 border-dashed border-slate-200 rounded-2xl">Anda belum membuat komunitas.</p>}
+                                  </div>
+                              ) : (
+                                  <div className="space-y-4 max-h-[550px] overflow-y-auto pr-2 custom-scrollbar">
+                                     <p className="text-xs font-bold text-red-500 mb-2 bg-red-50 px-3 py-1.5 rounded-lg inline-block flex items-center gap-1.5 w-max"><Eye size={14}/> God-Eye View</p>
+                                     {allCommunities.filter(c => c.ownerId !== user.uid).map(c => (
+                                        <div key={c.id} className="bg-red-50 border border-red-100 p-5 rounded-2xl flex flex-col xl:flex-row justify-between group hover:border-red-300 transition-colors shadow-sm gap-4 items-start text-left">
+                                           <div className="flex flex-col items-start w-full xl:w-auto flex-1">
+                                              <div className="flex items-center gap-2 mb-1 w-full justify-start">
+                                                  <p className="font-black text-slate-800 text-lg">{c.name}</p>
+                                                  <button onClick={()=>{setEditCommId(c.id); setNewCommName(c.name); setSelectedActs(c.activities||[]);}} className="text-slate-400 hover:text-blue-600 bg-white hover:bg-blue-50 p-1.5 rounded-lg transition-colors shadow-sm"><Edit3 size={14}/></button>
+                                                  <button onClick={()=>handleDeleteCommunity(c.id)} className="text-slate-400 hover:text-red-600 bg-white hover:bg-red-50 p-1.5 rounded-lg transition-colors shadow-sm"><Trash2 size={14}/></button>
+                                              </div>
+                                              <button onClick={() => handleViewCommActs(c)} className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md font-bold uppercase mb-3 text-left flex items-center gap-1.5 transition-colors shadow-sm w-max cursor-pointer">
+    <Eye size={12}/> {c.activities?.length || 0} Aktivitas Wajib
+</button>
+                                              <button onClick={() => setMembersModal({show:true, commId: c.id, commName: c.name, isAdminView: true, isOwnerView: true})} className="text-xs bg-white border border-red-200 text-red-700 font-bold px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-red-100 transition-colors shadow-sm mb-3 self-start w-max">
+                                                  <Users size={14}/> Kelola {getCommunityMembersFull(c.id).length} Anggota
+                                              </button>
+                                              <p className="text-[9px] text-red-500 font-black uppercase tracking-widest bg-white inline-block px-2 py-1 rounded border border-red-100 shadow-sm w-max self-start mt-1">Pembuat: {c.ownerName || 'Unknown'}</p>
+                                           </div>
+                                           <div className="text-left xl:text-right mt-2 xl:mt-0 flex flex-col items-start xl:items-end w-full xl:w-auto">
+                                              <p className="text-[9px] text-red-400 font-bold uppercase mb-1">Kode Join</p>
+                                              <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-red-200 shadow-sm w-max">
+                                                 <span className="font-black text-red-700 tracking-widest text-lg">{c.joinCode}</span>
+                                                 <button onClick={()=>{navigator.clipboard.writeText(c.joinCode); showToast("Disalin!");}} className="text-red-400 hover:text-red-600 bg-red-50 p-1 rounded shadow-sm"><Copy size={14}/></button>
+                                              </div>
+                                           </div>
+                                        </div>
+                                     ))}
+                                     {allCommunities.filter(c => c.ownerId !== user.uid).length === 0 && <p className="text-sm text-center py-8 text-slate-400 italic border-2 border-dashed border-slate-200 rounded-2xl">Belum ada admin lain yang membuat komunitas.</p>}
+                                  </div>
+                              )}
+                           </div>
+                       </div>
+                    </div>
+                 ) : adminTab === 'globalacts' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                       <div className="bg-orange-50 p-6 rounded-2xl border border-orange-100 h-max sticky top-0">
+                          <h3 className="font-bold text-orange-800 mb-2 flex items-center gap-2">{editGlobalActId ? <><Edit3 size={18}/> Edit Master Ibadah</> : <><Plus size={18}/> Tambah Master Ibadah Global</>}</h3>
+                          <p className="text-xs text-orange-700 mb-6">Aktivitas ini akan muncul di daftar pilihan saat Admin membuat komunitas baru.</p>
+                          <input type="text" placeholder="Nama Ibadah" value={newGlobalAct.name} onChange={e => setNewGlobalAct({...newGlobalAct, name: e.target.value})} className="w-full bg-white border border-orange-200 rounded-xl p-3 mb-4 text-sm focus:border-orange-500 outline-none font-bold" />
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                              <div className="col-span-2 sm:col-span-1">
+                                  <label className="block text-[10px] font-bold text-orange-600 uppercase mb-1">Jam Default</label>
+                                  <input type="time" value={newGlobalAct.time} onChange={e => setNewGlobalAct({...newGlobalAct, time: e.target.value})} className="w-full bg-white border border-orange-200 rounded-xl p-3 text-sm focus:border-orange-500 outline-none font-bold" />
+                              </div>
+                              <div className="col-span-2 sm:col-span-1">
+                                  <label className="block text-[10px] font-bold text-orange-600 uppercase mb-1">Pengulangan</label>
+                                  <select value={newGlobalAct.frequency} onChange={e => setNewGlobalAct({...newGlobalAct, frequency: e.target.value, freqConfig: ''})} className="w-full bg-white border border-orange-200 rounded-xl p-3 text-xs font-bold focus:border-orange-500 outline-none cursor-pointer">
+                                      <option value="daily">Daily (Harian)</option>
+                                      <option value="weekly">Weekly (Mingguan)</option>
+                                      <option value="biweekly">Bi-Weekly (2-Mingguan)</option>
+                                      <option value="monthly">Monthly (Bulanan)</option>
+                                  </select>
+                              </div>
+                          </div>
+                          
+                          {newGlobalAct.frequency === 'weekly' && (
+                             <div className="mb-4">
+                                <label className="block text-[10px] font-bold text-orange-600 uppercase mb-2">Pilih Hari Wajib</label>
+                                <div className="flex gap-1.5 justify-between">
+                                   {WEEKDAYS_SHORT.map((day, idx) => {
+                                      const isSel = newGlobalAct.freqConfig.split(',').includes(String(idx));
+                                      return (
+                                         <button key={idx} onClick={() => {
+                                            let days = newGlobalAct.freqConfig ? newGlobalAct.freqConfig.split(',') : [];
+                                            if(days.includes(String(idx))) days = days.filter(d => d !== String(idx));
+                                            else days.push(String(idx));
+                                            setNewGlobalAct({...newGlobalAct, freqConfig: days.join(',')});
+                                         }} className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-colors ${isSel ? 'bg-orange-600 text-white shadow-sm' : 'bg-white border border-orange-200 text-orange-600'}`}>{day}</button>
+                                      );
+                                   })}
+                                </div>
+                             </div>
+                          )}
+                          {newGlobalAct.frequency === 'monthly' && (
+                             <div className="mb-4">
+                                 <label className="block text-[10px] font-bold text-orange-600 uppercase mb-1">Tanggal Wajib (Pisahkan dengan koma)</label>
+                                 <input type="text" placeholder="Cth: 1, 15, 30" value={newGlobalAct.freqConfig} onChange={e => setNewGlobalAct({...newGlobalAct, freqConfig: e.target.value.replace(/[^0-9, ]/g, '')})} className="w-full bg-white border border-orange-200 rounded-xl p-3 text-sm focus:border-orange-500 outline-none" />
+                             </div>
+                          )}
+                          {newGlobalAct.frequency === 'biweekly' && (
+                             <div className="mb-4">
+                                 <label className="block text-[10px] font-bold text-orange-600 uppercase mb-1">Tanggal Mulai (Anchor Date)</label>
+                                 <input type="date" value={newGlobalAct.freqConfig} onChange={e => setNewGlobalAct({...newGlobalAct, freqConfig: e.target.value})} className="w-full bg-white border border-orange-200 rounded-xl p-3 text-sm focus:border-orange-500 outline-none" />
+                             </div>
+                          )}
+
+                          <div className="flex gap-2 mt-4">
+                             {editGlobalActId && <button onClick={()=>{setEditGlobalActId(null); setNewGlobalAct({name: '', time: '00:00', frequency: 'daily', freqConfig: ''});}} className="px-4 bg-orange-200 text-orange-800 font-bold rounded-xl hover:bg-orange-300">Batal</button>}
+                             <button onClick={handleAddGlobalActivity} className="flex-1 bg-orange-600 text-white font-bold py-3 rounded-xl hover:bg-orange-700 shadow-md transition-colors">{editGlobalActId ? 'Simpan Perubahan' : 'Tambahkan ke Master Global'}</button>
+                          </div>
+                          {editGlobalActId && <p className="text-[9px] text-orange-500 mt-4 font-bold italic leading-relaxed text-center">*Peringatan: Perubahan NAMA di sini akan otomatis mensinkronkan ulang dan merubah nama di tabel komitmen pribadi maupun komunitas seluruh user (Force-Sync).</p>}
+                       </div>
+                       <div>
+                          <h3 className="font-bold text-slate-800 mb-4 text-left w-full">Daftar Master Global ({globalActivities.length})</h3>
+                          <div className="space-y-2 h-[450px] overflow-y-auto pr-2 custom-scrollbar">
+                             {globalActivities.map(act => (
+                                <div key={act.docId} className={`flex justify-between items-center bg-slate-50 border p-4 rounded-xl shadow-sm transition-colors ${editGlobalActId === act.docId ? 'border-orange-500 bg-orange-50' : 'border-slate-200 hover:border-orange-300'}`}>
+                                   <div className="flex flex-col items-start text-left min-w-0">
+                                      <span className="font-bold text-slate-700 truncate w-full">{act.name}</span>
+                                      <span className="text-[9px] text-slate-400 font-medium uppercase tracking-widest mt-0.5 w-full">{getFreqLabel(act.frequency)}</span>
+                                   </div>
+                                   <div className="flex items-center gap-3 shrink-0 ml-4">
+                                       <span className="text-xs font-black text-orange-600 bg-orange-100 border border-orange-200 px-2 py-1 rounded shadow-sm">{act.time}</span>
+                                       <button onClick={()=>{setEditGlobalActId(act.docId); setNewGlobalAct({name: act.name, time: act.time, frequency: act.frequency || 'daily', freqConfig: act.freqConfig || ''});}} className="text-slate-400 hover:text-orange-600 bg-white p-2 rounded-lg shadow-sm border border-slate-200 transition-colors"><Edit3 size={14}/></button>
+                                   </div>
+                                </div>
+                             ))}
+                          </div>
+                       </div>
+                    </div>
+                 ) : adminTab === 'characters' ? (
+                    <div className="bg-white border border-slate-200 p-6 md:p-8 rounded-3xl shadow-sm max-w-5xl mx-auto">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 border-b border-slate-100 pb-5 gap-4">
+                            <div>
+                               <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><Shield className="text-purple-600"/> Top Karakter Disiplin</h3>
+                               <p className="text-sm text-slate-500 mt-1">Evaluasi psikologis ketahanan komitmen anggota.</p>
+                            </div>
+                            
+                            {/* Filter Waktu */}
+                            <div className="flex bg-slate-100 p-1 rounded-xl w-full md:w-auto">
+                                <button onClick={() => setAdminCharPeriod('mingguan')} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${adminCharPeriod === 'mingguan' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Minggu Ini</button>
+                                <button onClick={() => setAdminCharPeriod('bulanan')} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${adminCharPeriod === 'bulanan' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Bulan Ini</button>
+                                <button onClick={() => setAdminCharPeriod('alltime')} className={`flex-1 md:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${adminCharPeriod === 'alltime' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Sepanjang Masa</button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="bg-red-50 border border-red-100 p-6 rounded-2xl">
+                                <h4 className="text-sm font-black text-red-600 mb-5 flex items-center gap-2"><Flame size={18}/> Top 5 Daya Tahan (Consistency)</h4>
+                                <div className="space-y-3">
+                                   {allUsers.map((u) => ({ ...u, calc: hitungDeltaKarakter(u.records, adminCharPeriod) }))
+                                    .sort((a,b) => adminCharPeriod === 'alltime' ? (b.daily_streak||0) - (a.daily_streak||0) : b.calc.perfectDays - a.calc.perfectDays)
+                                    .slice(0,5).map((u,i) => (
+                                      <div key={u.id} className="flex justify-between items-center bg-white p-3.5 rounded-xl border border-red-100 shadow-sm hover:border-red-300 transition-colors">
+                                          <span className="font-bold text-sm text-slate-700">{i+1}. {u.displayName || 'Anonim'}</span>
+                                          <span className="font-black text-red-600 text-sm bg-red-50 px-3 py-1 rounded-lg border border-red-100">{adminCharPeriod === 'alltime' ? `${u.daily_streak||0} Hari` : `${u.calc.perfectDays} Hari Sempurna`}</span>
+                                      </div>
+                                   ))}
+                                   {allUsers.length === 0 && <p className="text-xs text-slate-400 italic text-center py-4">Belum ada data.</p>}
+                                </div>
+                            </div>
+                            <div className="bg-green-50 border border-green-100 p-6 rounded-2xl">
+                                <h4 className="text-sm font-black text-green-600 mb-5 flex items-center gap-2"><Heart size={18}/> Top 5 Kesehatan (Minim Penalti)</h4>
+                                <div className="space-y-3">
+                                   {allUsers.map((u) => ({ ...u, calc: hitungDeltaKarakter(u.records, adminCharPeriod) }))
+                                    .sort((a,b) => adminCharPeriod === 'alltime' ? (b.hp_score||0) - (a.hp_score||0) : a.calc.dmg - b.calc.dmg)
+                                    .slice(0,5).map((u,i) => (
+                                      <div key={u.id} className="flex justify-between items-center bg-white p-3.5 rounded-xl border border-green-100 shadow-sm hover:border-green-300 transition-colors">
+                                          <div className="flex flex-col">
+                                              <span className="font-bold text-sm text-slate-700">{i+1}. {u.displayName || 'Anonim'}</span>
+                                              {adminCharPeriod !== 'alltime' && <span className="text-[10px] font-bold text-slate-400 mt-0.5">Akuntabilitas: {u.calc.acc}%</span>}
+                                          </div>
+                                          <span className="font-black text-green-600 text-sm bg-green-50 px-3 py-1 rounded-lg border border-green-100">{adminCharPeriod === 'alltime' ? `${u.hp_score||0} HP` : `-${u.calc.dmg} HP`}</span>
+                                      </div>
+                                   ))}
+                                   {allUsers.length === 0 && <p className="text-xs text-slate-400 italic text-center py-4">Belum ada data.</p>}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                 ) : adminTab === 'notifs' ? (
+                    <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200 max-w-4xl mx-auto shadow-sm">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 border-b border-slate-100 pb-4 gap-4">
+                            <div>
+                                <h3 className="font-black text-orange-600 flex items-center gap-2 text-xl"><Megaphone size={20}/> Pusat Komando Notifikasi</h3>
+                                <p className="text-sm text-slate-500 mt-1">Kelola dan tarik pesan broadcast (Real-Time).</p>
+                            </div>
+                            <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+                                <button onClick={()=>setNotifTab('create')} className={`flex-1 sm:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${notifTab === 'create' ? 'bg-white text-orange-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Tulis Baru</button>
+                                <button onClick={()=>setNotifTab('history')} className={`flex-1 sm:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${notifTab === 'history' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Riwayat Terkirim</button>
+                            </div>
+                        </div>
+                        
+                        {notifTab === 'create' ? (
+                            <div className="space-y-4 max-w-2xl mx-auto">
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-slate-600 mb-2">Target Penerima</label>
+                                    <select value={newNotif.targetId} onChange={e => setNewNotif({...newNotif, targetId: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:border-orange-500 cursor-pointer shadow-sm">
+                                        {isSuperAdmin && <option value="all">🌐 Seluruh Pengguna (Global)</option>}
+                                        <optgroup label={isSuperAdmin ? "Semua Grup" : "Grup Anda & Wakil"}>
+                                            {/* [UPDATED] Wakil Admin kini bisa mengirim Notifikasi */}
+                                            {allCommunities.filter(c => isSuperAdmin || c.ownerId === user.uid || c.coAdmins?.includes(user.uid)).map(c => (
+                                                <option key={c.id} value={c.id}>👥 Grup: {c.name}</option>
+                                            ))}
+                                        </optgroup>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-slate-600 mb-2">Judul Notifikasi</label>
+                                    <input type="text" placeholder="Cth: Tantangan Baru Minggu Ini!" value={newNotif.title} onChange={e => setNewNotif({...newNotif, title: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-bold text-slate-800 outline-none focus:border-orange-500 shadow-sm" />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-black uppercase tracking-widest text-slate-600 mb-2">Pesan Lengkap</label>
+                                    <textarea placeholder="Tuliskan detail pengumuman..." value={newNotif.body} onChange={e => setNewNotif({...newNotif, body: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-medium text-slate-700 outline-none focus:border-orange-500 min-h-[120px] resize-none shadow-sm leading-relaxed" />
+                                </div>
+                                <button onClick={handleSendNotif} className="w-full bg-orange-600 text-white font-black py-4 mt-2 rounded-xl shadow-lg hover:bg-orange-700 transition-all flex items-center justify-center gap-2"><Send size={18}/> Kirim Notifikasi Sekarang</button>
+                            </div>
+                        ) : (
+                            <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                                {notifications.filter(n => isSuperAdmin || n.senderName === user.displayName).map(n => (
+                                    <div key={n.id} className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 group hover:border-blue-300 transition-colors">
+                                        {editNotif?.id === n.id ? (
+                                            <div className="flex-1 w-full space-y-2">
+                                                <input type="text" value={editNotif.title} onChange={e=>setEditNotif({...editNotif, title: e.target.value})} className="w-full p-2 border border-blue-400 rounded-lg text-sm font-bold bg-white outline-none" />
+                                                <textarea value={editNotif.body} onChange={e=>setEditNotif({...editNotif, body: e.target.value})} className="w-full p-2 border border-blue-400 rounded-lg text-xs bg-white outline-none resize-none" rows={3}/>
+                                            </div>
+                                        ) : (
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span className="font-bold text-slate-800 truncate">{n.title}</span>
+                                                    <span className="text-[9px] bg-white border border-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-black uppercase shadow-sm">{n.targetId === 'all' ? 'GLOBAL' : 'GRUP'}</span>
+                                                </div>
+                                                <p className="text-xs text-slate-500 mt-1 line-clamp-2">{n.body}</p>
+                                                <span className="text-[9px] text-slate-400 font-bold mt-2 block">{new Date(n.timestamp).toLocaleString('id-ID')}</span>
+                                            </div>
+                                        )}
+                                        <div className="flex gap-2 w-full md:w-auto shrink-0">
+                                            {editNotif?.id === n.id ? (
+                                                <><button onClick={handleUpdateNotif} className="flex-1 md:flex-none bg-blue-600 text-white px-4 py-2.5 rounded-lg text-xs font-bold">Simpan</button>
+                                                <button onClick={()=>setEditNotif(null)} className="flex-1 md:flex-none bg-slate-200 text-slate-600 px-4 py-2.5 rounded-lg text-xs font-bold">Batal</button></>
+                                            ) : (
+                                                <><button onClick={()=>setEditNotif(n)} className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-600 hover:text-blue-600 hover:border-blue-300 px-3 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-1 shadow-sm"><Edit3 size={14}/> Edit</button>
+                                                <button onClick={()=>handleDeleteNotif(n.id)} className="flex-1 md:flex-none bg-white border border-slate-200 text-red-500 hover:bg-red-50 hover:border-red-200 px-3 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-1 shadow-sm"><Trash2 size={14}/> Tarik/Hapus</button></>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                                {notifications.filter(n => isSuperAdmin || n.senderName === user.displayName).length === 0 && <p className="text-center text-slate-400 text-sm py-10 italic">Belum ada riwayat broadcast.</p>}
+                            </div>
+                        )}
+                    </div>
+                 ) : null}
+              </div>
+           </div>
+        )}
+
         {/* ================= TOMBOL SIMPAN MELAYANG (DENGAN UNDO/REDO MENCOLOK) ================= */}
         {hasUnsavedChanges && (
            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[80] w-full px-4 sm:w-auto sm:px-0 flex items-center justify-center gap-4 pointer-events-none">
