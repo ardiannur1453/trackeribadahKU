@@ -279,6 +279,13 @@ useEffect(() => {
          setMemberAnalyticsModal({show: false, user: null});
          setShowNotifModal(false);
          setIsViewModalOpen(false);
+         // [FIXED] Menutup Jendela Admin & Membersihkan Data Form yang tertinggal
+         setShowAdminPanel(false);
+         setEditCommId(null); 
+         setNewCommName(''); 
+         setSelectedActs([]); 
+         setEditGlobalActId(null); 
+         setNewGlobalAct({name: '', time: '00:00', frequency: 'daily', freqConfig: ''});
       }
     };
     window.addEventListener('keydown', handleEsc);
