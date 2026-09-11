@@ -128,7 +128,7 @@ export default function IbadahTracker() {
   });
   
   const [membersModal, setMembersModal] = useState({ 
-      show: false, commId: '', commName: '', isAdminView: false 
+      show: false, commId: '', commName: '', isAdminView: false, isOwnerView: false 
   });
 
   const [fullLeaderboardModal, setFullLeaderboardModal] = useState({
@@ -198,7 +198,9 @@ const [editNotif, setEditNotif] = useState<any>(null);
 
   // --- STATES ADMIN DASHBOARD ---
   const isSuperAdmin = user?.email === 'coachardi1453@gmail.com';
-  const isAdmin = isSuperAdmin || userRole === 'admin';
+  // [NEW] Kalkulasi dinamis: Apakah user ini merupakan Wakil Admin di grup manapun?
+  const isCoAdminAnywhere = useMemo(() => allCommunities.some(c => c.coAdmins?.includes(user?.uid)), [allCommunities, user]);
+  const isAdmin = isSuperAdmin || userRole === 'admin' || isCoAdminAnywhere;
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [adminTab, setAdminTab] = useState<'users' | 'communities' | 'globalacts' | 'characters' | 'notifs'>('users');
   const [adminCommTab, setAdminCommTab] = useState<'my' | 'others'>('my');
@@ -1311,7 +1313,23 @@ const handleOpenNotifs = () => {
         } catch(e) { showToast("Gagal menghapus."); }
      }
   };
-
+// [NEW] Fungsi Angkat/Copot Wakil Admin (Co-Admin)
+const handleToggleCoAdmin = async (targetUid: string, isMakeCoAdmin: boolean) => {
+    if (!window.confirm(isMakeCoAdmin ? "Angkat member ini menjadi Wakil Admin?" : "Cabut hak Wakil Admin dari member ini?")) return;
+    try {
+        const comm = allCommunities.find(c => c.id === membersModal.commId);
+        if (!comm) return;
+        let newCoAdmins = comm.coAdmins || [];
+        
+        if (isMakeCoAdmin) {
+            if (!newCoAdmins.includes(targetUid)) newCoAdmins.push(targetUid);
+        } else {
+            newCoAdmins = newCoAdmins.filter((id: string) => id !== targetUid);
+        }
+        await updateDoc(doc(db, 'communities', membersModal.commId), { coAdmins: newCoAdmins });
+        showToast(isMakeCoAdmin ? "Berhasil diangkat menjadi Wakil Admin!" : "Hak Wakil Admin dicabut.");
+    } catch(e) { showToast("Gagal mengubah status Wakil Admin."); }
+};
   const handleKickMember = async (targetUid: string) => {
       if(!window.confirm("Yakin ingin mengeluarkan anggota ini dari komunitas?")) return;
       try {
@@ -1378,7 +1396,7 @@ const handleViewCommActs = (comm: any) => {
   const filteredAdminUsers = useMemo(() => {
      let result = allUsers;
      if (userRole === 'admin') {
-        const myComms = allCommunities.filter(c => c.ownerId === user.uid).map(c => c.id);
+        const myComms = allCommunities.filter(c => c.ownerId === user.uid || c.coAdmins?.includes(user.uid)).map(c => c.id);
         result = allUsers.filter(u => u.joinedCommunities?.some((id:string) => myComms.includes(id)));
      }
      if (adminSearch) {
@@ -2044,21 +2062,41 @@ const handleViewCommActs = (comm: any) => {
                  <h2 className="text-xl font-bold text-slate-800 mb-1 flex items-center gap-2"><Users className="text-blue-500"/> Anggota Grup</h2>
                  <p className="text-sm font-semibold text-slate-500 mb-6 border-b pb-4">{membersModal.commName}</p>
                  <div className="max-h-80 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
-                     {getCommunityMembersFull(membersModal.commId).map((u, i) => (
+                 {getCommunityMembersFull(membersModal.commId).map((u, i) => {
+                         const commData = allCommunities.find(c => c.id === membersModal.commId);
+                         const isTargetCoAdmin = commData?.coAdmins?.includes(u.id);
+                         const isTargetOwner = commData?.ownerId === u.id;
+                         
+                         return (
                          <div key={u.id} className="bg-slate-50 p-3 rounded-xl border flex justify-between items-center group hover:border-blue-300 transition-colors">
-                            <span className="font-bold text-sm text-slate-700">{i+1}. {u.displayName || 'Anonim'}</span>
-                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button onClick={() => { setMembersModal({...membersModal, show: false}); setMemberAnalyticsModal({show: true, user: u}); }} className="text-xs bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-blue-100">
-                                   <Activity size={12}/> Analisa
-                                </button>
+                            <span className="font-bold text-sm text-slate-700 flex items-center gap-1.5 flex-wrap">
+                                {i+1}. {u.displayName || 'Anonim'}
+                                {isTargetOwner && <Crown size={12} className="text-yellow-500" title="Pemilik Grup"/>}
+                                {isTargetCoAdmin && <Shield size={12} className="text-blue-500" title="Wakil Admin"/>}
+                            </span>
+                            
+                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity flex-wrap justify-end">
+                                {/* [FIXED POIN 4] Hak Analisa: Hanya untuk Owner & Wakil Admin */}
                                 {membersModal.isAdminView && (
-                                    <button onClick={() => handleKickMember(u.id)} className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-red-100">
-                                       <UserMinus size={12}/> Keluarkan
+                                    <button onClick={() => { setMembersModal({...membersModal, show: false}); setMemberAnalyticsModal({show: true, user: u}); }} className="text-xs bg-blue-50 text-blue-600 border border-blue-200 px-3 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-blue-100">
+                                       <Activity size={12}/> Analisa
                                     </button>
+                                )}
+                                
+                                {/* [NEW POIN 5] Hak Manajemen Eksklusif: Hanya untuk Owner / Superadmin */}
+                                {membersModal.isOwnerView && !isTargetOwner && (
+                                    <>
+                                        <button onClick={() => handleToggleCoAdmin(u.id, !isTargetCoAdmin)} className={`text-xs px-3 py-1 rounded-lg font-bold flex items-center gap-1 border transition-colors ${isTargetCoAdmin ? 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100' : 'bg-purple-50 text-purple-600 border-purple-200 hover:bg-purple-100'}`}>
+                                            <Shield size={12}/> {isTargetCoAdmin ? 'Copot Wakil' : 'Jadikan Wakil'}
+                                        </button>
+                                        <button onClick={() => handleKickMember(u.id)} className="text-xs bg-red-50 text-red-600 border border-red-200 px-3 py-1 rounded-lg font-bold flex items-center gap-1 hover:bg-red-100">
+                                           <UserMinus size={12}/> Keluarkan
+                                        </button>
+                                    </>
                                 )}
                             </div>
                          </div>
-                     ))}
+                     )})}
                      {getCommunityMembersFull(membersModal.commId).length === 0 && <p className="text-center text-sm text-slate-400">Belum ada anggota.</p>}
                  </div>
               </div>
@@ -2613,8 +2651,9 @@ const handleViewCommActs = (comm: any) => {
                                     <label className="block text-xs font-black uppercase tracking-widest text-slate-600 mb-2">Target Penerima</label>
                                     <select value={newNotif.targetId} onChange={e => setNewNotif({...newNotif, targetId: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-sm font-bold text-slate-700 outline-none focus:border-orange-500 cursor-pointer shadow-sm">
                                         {isSuperAdmin && <option value="all">🌐 Seluruh Pengguna (Global)</option>}
-                                        <optgroup label={isSuperAdmin ? "Semua Grup" : "Grup Milik Anda"}>
-                                            {allCommunities.filter(c => isSuperAdmin || c.ownerId === user.uid).map(c => (
+                                        <optgroup label={isSuperAdmin ? "Semua Grup" : "Grup Anda & Wakil"}>
+                                            {/* [UPDATED] Wakil Admin kini bisa mengirim Notifikasi */}
+                                            {allCommunities.filter(c => isSuperAdmin || c.ownerId === user.uid || c.coAdmins?.includes(user.uid)).map(c => (
                                                 <option key={c.id} value={c.id}>👥 Grup: {c.name}</option>
                                             ))}
                                         </optgroup>
@@ -3100,9 +3139,19 @@ const handleViewCommActs = (comm: any) => {
                       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-40 bg-blue-500/10 rounded-full blur-[100px] pointer-events-none"></div>
                       
                       <div className="relative z-10 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-8 border-b border-slate-700/50 pb-6">
-                         <div className="text-center sm:text-left w-full sm:w-auto">
+                      <div className="text-center sm:text-left w-full sm:w-auto">
                             <h3 className="text-2xl font-black text-white flex items-center justify-center sm:justify-start gap-3 truncate max-w-[250px]"><Medal className="text-blue-400 shrink-0" size={24}/> {comm.name}</h3>
-                            <button onClick={() => setMembersModal({show: true, commId: comm.id, commName: comm.name, isAdminView: false})} className="text-xs text-slate-400 hover:text-white mt-2 font-semibold flex items-center justify-center sm:justify-start gap-1.5 transition-colors bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-full border border-white/10 mx-auto sm:mx-0"><Users size={12}/> {commMembers.length} Member Terdaftar</button>
+                            
+                            {/* [FIXED] Tombol Leaderboard Aman & Cerdas (Tidak Error Lagi) */}
+                            <button onClick={() => {
+                                const isOwner = comm.ownerId === user.uid || isSuperAdmin;
+                                const isCoAdmin = comm.coAdmins?.includes(user.uid);
+                                setMembersModal({
+                                    show: true, commId: comm.id, commName: comm.name, 
+                                    isAdminView: isOwner || isCoAdmin, 
+                                    isOwnerView: isOwner
+                                });
+                            }} className="text-xs text-slate-400 hover:text-white mt-2 font-semibold flex items-center justify-center sm:justify-start gap-1.5 transition-colors bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-full border border-white/10 mx-auto sm:mx-0"><Users size={12}/> {commMembers.length} Member Terdaftar</button>
                          </div>
                          <div className="flex bg-slate-800/80 p-1.5 rounded-xl border border-slate-600 shadow-inner w-full sm:w-auto">
                             <button onClick={()=>setLeaderboardTabs({...leaderboardTabs, [commId]: 'yesterday'})} className={`flex-1 sm:flex-none px-4 py-2 text-xs font-bold rounded-lg transition-all ${activeTab==='yesterday' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'}`}>Kemarin</button>
@@ -3216,7 +3265,8 @@ const handleViewCommActs = (comm: any) => {
                  <div className="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-xl">
                     <p className="text-xs font-black text-blue-800 mb-3 flex items-center gap-2"><Megaphone size={14}/> Bagikan sebagai Pesan Admin ke Komunitas (Opsional)</p>
                     <div className="flex flex-wrap gap-2">
-                        {allCommunities.filter(c => isSuperAdmin || c.ownerId === user.uid).map(c => (
+                        {/* [UPDATED] Wakil Admin kini bisa menyebarkan Jurnal Admin */}
+                        {allCommunities.filter(c => isSuperAdmin || c.ownerId === user.uid || c.coAdmins?.includes(user.uid)).map(c => (
                             <label key={c.id} className="flex items-center gap-2 bg-white px-3 py-2 rounded-lg border border-blue-200 cursor-pointer hover:bg-blue-100 transition-colors shadow-sm">
                                 <input type="checkbox" checked={journalInput.sharedWith.includes(c.id)} onChange={(e) => {
                                     const newShared = e.target.checked ? [...journalInput.sharedWith, c.id] : journalInput.sharedWith.filter((id: string) => id !== c.id);
@@ -3225,7 +3275,7 @@ const handleViewCommActs = (comm: any) => {
                                 <span className="text-[10px] font-bold text-blue-900">{c.name}</span>
                             </label>
                         ))}
-                        {allCommunities.filter(c => isSuperAdmin || c.ownerId === user.uid).length === 0 && <p className="text-xs text-blue-500 italic">Anda belum memiliki komunitas untuk dibagikan.</p>}
+                        {allCommunities.filter(c => isSuperAdmin || c.ownerId === user.uid || c.coAdmins?.includes(user.uid)).length === 0 && <p className="text-xs text-blue-500 italic">Anda belum memiliki komunitas untuk dibagikan.</p>}
                     </div>
                  </div>
               )}
